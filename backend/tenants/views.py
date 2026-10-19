@@ -1680,6 +1680,21 @@ class TenantInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             TenantInvoiceSerializer(invoice).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
+    @action(detail=True, methods=['get'],
+            permission_classes=[IsAuthenticated, IsTenantOwner | IsPlatformAdmin])
+    def pdf(self, request, pk=None):
+        """
+        The invoice as a PDF, for a school admin to pass to whoever approves
+        the payment.
+        """
+        from django.http import HttpResponse
+        from .invoice_pdf import invoice_filename, render_invoice_pdf
+
+        invoice = self.get_object()
+        response = HttpResponse(render_invoice_pdf(invoice), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{invoice_filename(invoice)}"'
+        return response
+
     @action(detail=False, methods=['get'], url_path='platform-summary',
             permission_classes=[IsAuthenticated, IsPlatformAdmin])
     def platform_summary(self, request):
@@ -2059,6 +2074,71 @@ class TenantPaymentViewSet(viewsets.ReadOnlyModelViewSet):
         page = paginator.paginate_queryset(payments, request, view=self)
         return paginator.get_paginated_response(
             PendingPaymentSerializer(page, many=True).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def receipt(self, request, pk=None):
+        """
+        A receipt PDF for a confirmed payment, for the platform admin to send
+        the school. `received_from` replaces the school's name as the payer
+        (say, the proprietor's), and `note` is printed on it.
+        """
+        from django.http import HttpResponse
+        from .invoice_pdf import receipt_filename, render_receipt_pdf
+
+        payment = self.get_object()
+        if payment.status != 'confirmed':
+            return Response({'error': 'Only a confirmed payment has a receipt'}, status=400)
+
+        pdf = render_receipt_pdf(
+            payment,
+            received_from=str(request.data.get('received_from') or '')[:255],
+            note=str(request.data.get('note') or '')[:1000],
+            issued_by=request.user.get_full_name(),
+        )
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{receipt_filename(payment)}"'
+        return response
+
+    @action(detail=True, methods=['get'], url_path='receipt-recipients',
+            permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def receipt_recipients(self, request, pk=None):
+        """Who a receipt would be emailed to: the owner email, and admins to copy in."""
+        from .receipts import school_admins
+
+        tenant = self.get_object().invoice.tenant
+        return Response({
+            'school_name': tenant.name,
+            'owner_email': tenant.owner_email or '',
+            'admins': school_admins(tenant),
+        })
+
+    @action(detail=True, methods=['post'], url_path='send-receipt',
+            permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def send_receipt(self, request, pk=None):
+        """
+        Email a confirmed payment's receipt to the school's owner email,
+        copying in the addresses in `cc`. Takes `received_from` and `note` as
+        the receipt download does.
+        """
+        from .receipts import ReceiptEmailError, send_receipt
+
+        payment = self.get_object()
+        if payment.status != 'confirmed':
+            return Response({'error': 'Only a confirmed payment has a receipt'}, status=400)
+        cc = request.data.get('cc') or []
+        if not isinstance(cc, list):
+            return Response({'error': 'cc must be a list of email addresses'}, status=400)
+
+        try:
+            sent = send_receipt(
+                payment, cc=cc,
+                received_from=str(request.data.get('received_from') or '')[:255],
+                note=str(request.data.get('note') or '')[:1000],
+                issued_by=request.user.get_full_name(),
+            )
+        except ReceiptEmailError as e:
+            return Response({'error': str(e)}, status=400)
+        return Response({'to': sent.to, 'cc': sent.cc})
 
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):

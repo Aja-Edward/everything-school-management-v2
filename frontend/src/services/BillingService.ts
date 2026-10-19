@@ -5,7 +5,7 @@
  * ============================================================================
  */
 
-import api, { API_BASE_URL, getTenantSlug } from './api';
+import api, { API_BASE_URL, buildHeaders, getTenantSlug } from './api';
 import type {
   Invoice,
   InvoiceQuote,
@@ -35,7 +35,6 @@ import type {
 //
 // Closest existing endpoints, for whoever finishes these:
 //   confirm-bank-transfer  -> POST /api/tenants/payments/{id}/confirm/  (platform admin)
-//   invoices/{id}/pdf      -> no equivalent
 //   invoices/{id}/send     -> no equivalent
 //   feature-access         -> no equivalent
 //   activate-features      -> closest is ServiceManagementViewSet.toggle
@@ -94,9 +93,6 @@ export const getInvoice = async (invoiceId: string): Promise<Invoice> => {
 
 /**
  * Download invoice PDF
- */
-/**
- * Download invoice PDF
  * Uses raw fetch because we need a Blob response, not JSON.
  * api.ts handles JSON only, so we replicate its headers manually here.
  */
@@ -104,7 +100,7 @@ export const downloadInvoicePDF = async (invoiceId: string): Promise<Blob> => {
   const tenantSlug = getTenantSlug() || '';
 
   const response = await fetch(
-    `${API_BASE_URL}/billing/invoices/${invoiceId}/pdf/`,
+    `${API_BASE_URL}/tenants/invoices/${invoiceId}/pdf/`,
     {
       credentials: 'include',
       headers: {
@@ -119,6 +115,80 @@ export const downloadInvoicePDF = async (invoiceId: string): Promise<Blob> => {
   }
 
   return response.blob();
+};
+
+/**
+ * Download an invoice's PDF and save it as <invoice number>.pdf.
+ */
+export const saveInvoicePDF = async (invoice: Pick<Invoice, 'id' | 'invoice_number'>): Promise<void> => {
+  saveBlob(await downloadInvoicePDF(invoice.id), `${invoice.invoice_number}.pdf`);
+};
+
+/**
+ * Download a receipt for a confirmed payment (Platform admin only).
+ * `receivedFrom` replaces the school's name as the payer; `note` is printed
+ * on the receipt.
+ */
+export const saveReceiptPDF = async (
+  paymentId: string,
+  fallbackName: string,
+  options: { receivedFrom?: string; note?: string } = {}
+): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/tenants/payments/${paymentId}/receipt/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: await buildHeaders('POST'),
+    body: JSON.stringify({ received_from: options.receivedFrom ?? '', note: options.note ?? '' }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `Failed to download receipt: ${response.status}`);
+  }
+
+  // The server names it after the receipt number, when CORS lets us read it.
+  const named = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
+  saveBlob(await response.blob(), named || fallbackName);
+};
+
+export interface ReceiptRecipients {
+  school_name: string;
+  owner_email: string;
+  admins: { name: string; email: string }[];
+}
+
+/**
+ * Who a payment's receipt would be emailed to (Platform admin only): the
+ * school's registration email, and its other admins to copy in.
+ */
+export const getReceiptRecipients = async (paymentId: string): Promise<ReceiptRecipients> => {
+  return await api.get(`/api/tenants/payments/${paymentId}/receipt-recipients/`);
+};
+
+/**
+ * Email a payment's receipt to the school's registration email, copying in
+ * `cc` (Platform admin only).
+ */
+export const sendReceipt = async (
+  paymentId: string,
+  options: { receivedFrom?: string; note?: string; cc?: string[] } = {}
+): Promise<{ to: string; cc: string[] }> => {
+  return await api.post(`/api/tenants/payments/${paymentId}/send-receipt/`, {
+    received_from: options.receivedFrom ?? '',
+    note: options.note ?? '',
+    cc: options.cc ?? [],
+  });
+};
+
+const saveBlob = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
 /**
@@ -430,6 +500,10 @@ export default {
   getInvoices,
   getInvoice,
   downloadInvoicePDF,
+  saveInvoicePDF,
+  saveReceiptPDF,
+  getReceiptRecipients,
+  sendReceipt,
   sendInvoice,
   cancelInvoice,
 

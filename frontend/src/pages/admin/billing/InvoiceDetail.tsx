@@ -6,12 +6,12 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowLeft, CreditCard, CheckCircle, AlertCircle, Calendar, Users, FileText } from 'lucide-react';
+import { ArrowLeft, CreditCard, CheckCircle, AlertCircle, Calendar, Users, FileText, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useInvoice } from '@/hooks/useBilling';
-import { formatCurrency, invoicePeriodLabel, isInvoiceOverdue, getPaymentMethodName } from '@/services/BillingService';
+import { formatCurrency, invoicePeriodLabel, isInvoiceOverdue, getPaymentMethodName, saveInvoicePDF } from '@/services/BillingService';
 import { PaymentModal } from '@/components/billing/PaymentModal';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
@@ -40,6 +40,8 @@ export const InvoiceDetail: React.FC = () => {
   const { invoice, loading, error, refetch } = useInvoice(invoiceId);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const handleBack = () => {
     navigate('/admin/billing');
@@ -48,6 +50,20 @@ export const InvoiceDetail: React.FC = () => {
   const handlePaymentSuccess = () => {
     refetch();
     setIsPaymentModalOpen(false);
+  };
+
+  // For an admin to pass to whoever approves the payment.
+  const handleDownload = async () => {
+    if (!invoice) return;
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      await saveInvoicePDF(invoice);
+    } catch {
+      setDownloadError('Could not download the invoice. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // Loading state
@@ -135,16 +151,25 @@ export const InvoiceDetail: React.FC = () => {
               </p>
             </div>
 
-            {canPay && (
-              <Button
-                size="sm"
-                onClick={() => setIsPaymentModalOpen(true)}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <CreditCard className="h-4 w-4 mr-1" />
-                Pay {formatCurrency(balanceDue)}
-              </Button>
-            )}
+            <div className="flex flex-col items-start md:items-end gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="outline" onClick={handleDownload} disabled={downloading}>
+                  <Download className="h-4 w-4 mr-1" />
+                  {downloading ? 'Downloading...' : 'Download PDF'}
+                </Button>
+                {canPay && (
+                  <Button
+                    size="sm"
+                    onClick={() => setIsPaymentModalOpen(true)}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <CreditCard className="h-4 w-4 mr-1" />
+                    Pay {formatCurrency(balanceDue)}
+                  </Button>
+                )}
+              </div>
+              {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
+            </div>
           </div>
         </CardHeader>
       </Card>

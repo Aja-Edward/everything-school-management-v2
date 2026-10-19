@@ -6,11 +6,11 @@
  */
 
 import React, { useState } from 'react';
-import { Eye, CreditCard, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Eye, CreditCard, AlertCircle, CheckCircle, Clock, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { formatCurrency, invoicePeriodLabel, isInvoiceOverdue } from '@/services/BillingService';
+import { formatCurrency, invoicePeriodLabel, isInvoiceOverdue, saveInvoicePDF } from '@/services/BillingService';
 import { PaymentModal } from './PaymentModal';
 import type { Invoice } from '@/types/types';
 import { useNavigate } from 'react-router-dom';
@@ -74,11 +74,24 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   const navigate = useNavigate();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const handlePayNow = (invoice: Invoice, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedInvoice(invoice);
     setIsPaymentModalOpen(true);
+  };
+
+  const handleDownload = async (invoice: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDownloadingId(invoice.id);
+    try {
+      await saveInvoicePDF(invoice);
+    } catch {
+      window.alert('Could not download the invoice. Please try again.');
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const handleViewInvoice = (invoice: Invoice) => {
@@ -187,6 +200,16 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                           Pay Now
                         </Button>
                       )}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={downloadingId === invoice.id}
+                        onClick={(e) => handleDownload(invoice, e)}
+                      >
+                        <Download className="h-4 w-4 mr-1" />
+                        {downloadingId === invoice.id ? 'Downloading...' : 'Download'}
+                      </Button>
 
                       <Button
                         variant="ghost"

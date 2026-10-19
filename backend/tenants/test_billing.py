@@ -307,6 +307,41 @@ class SchoolBillingTest(APITestCase):
 
         self.assertIsNone(self.sms_line(self.quote("term")))
 
+    def test_an_admin_can_download_an_invoice_as_a_pdf(self):
+        invoice = self.generate("term").data
+
+        response = self.client.get(
+            f"/api/tenants/invoices/{invoice['id']}/pdf/", **self.as_admin())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn(f'filename="{invoice["invoice_number"]}.pdf"',
+                      response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_only_school_admins_can_download_an_invoice(self):
+        invoice_id = self.generate("term").data["id"]
+        self.client.force_authenticate(self.make_user("a_teacher", "teacher"))
+
+        response = self.client.get(
+            f"/api/tenants/invoices/{invoice_id}/pdf/", HTTP_X_TENANT_SLUG=self.school.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_a_school_cannot_download_another_schools_invoice(self):
+        invoice_id = self.generate("term").data["id"]
+        other = Tenant.objects.create(
+            name="Beta College", slug="beta-college", status="active",
+            is_active=True, owner_email="beta@example.com")
+        self.client.force_authenticate(User.objects.create_user(
+            username="beta_admin", email="beta_admin@example.com", role="superadmin",
+            password=None, is_active=True, tenant=other))
+
+        response = self.client.get(
+            f"/api/tenants/invoices/{invoice_id}/pdf/", HTTP_X_TENANT_SLUG=other.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class PayPlatformInvoiceByPaystackTest(SchoolBillingTest):
     """A school paying its own invoice to the platform by card."""

@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, Loader2, AlertCircle, Search, ChevronRight } from 'lucide-react';
+import { Plus, X, Loader2, AlertCircle, Search, ChevronRight, FileDown, Send } from 'lucide-react';
 import api from '@/services/api';
 import {
   applyInvoiceDiscount,
@@ -24,7 +24,11 @@ import {
   invoicePeriodLabel,
   isInvoiceOverdue,
   recordInvoicePayment,
+  saveReceiptPDF,
+  getReceiptRecipients,
+  sendReceipt,
 } from '@/services/BillingService';
+import type { ReceiptRecipients } from '@/services/BillingService';
 import type { BillingPeriod, Invoice, InvoiceQuote, PlatformBillingSummary } from '@/types/types';
 import TenantPricingModal from './TenantPricingModal';
 
@@ -120,6 +124,155 @@ const SummaryCards: React.FC<{ summary: PlatformBillingSummary | null; onOpenTra
 };
 
 // ============================================================================
+// RECEIPT
+// ============================================================================
+
+/**
+ * What to print on a payment's receipt, then download it or email it to the
+ * school's registration email with other admins copied in.
+ */
+const ReceiptForm: React.FC<{
+  paymentId: string;
+  schoolName: string;
+  fallbackName: string;
+  onDone: () => void;
+}> = ({ paymentId, schoolName, fallbackName, onDone }) => {
+  const [receivedFrom, setReceivedFrom] = useState('');
+  const [note, setNote] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+
+  const [recipients, setRecipients] = useState<ReceiptRecipients | null>(null);
+  const [copied, setCopied] = useState<string[]>([]);
+  const [otherCc, setOtherCc] = useState('');
+
+  useEffect(() => {
+    getReceiptRecipients(paymentId)
+      .then(setRecipients)
+      .catch(() => setRecipients({ school_name: schoolName, owner_email: '', admins: [] }));
+  }, [paymentId, schoolName]);
+
+  const toggleCopied = (email: string) =>
+    setCopied(prev => (prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]));
+
+  const cc = [...copied, ...otherCc.split(/[,;\s]+/).map(e => e.trim()).filter(Boolean)];
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      await saveReceiptPDF(paymentId, fallbackName, { receivedFrom, note });
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err, 'Could not download the receipt.'));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleSend = async () => {
+    setSending(true);
+    setError(null);
+    setSent(null);
+    try {
+      const result = await sendReceipt(paymentId, { receivedFrom, note, cc });
+      setSent(`Sent to ${result.to}${result.cc.length ? `, copying ${result.cc.join(', ')}` : ''}.`);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not send the receipt.'));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
+      <div>
+        <label className={labelCls}>Received from</label>
+        <input
+          className={inputCls}
+          value={receivedFrom}
+          onChange={e => setReceivedFrom(e.target.value)}
+          placeholder={schoolName}
+        />
+      </div>
+      <div>
+        <label className={labelCls}>Note on the receipt (optional)</label>
+        <textarea
+          className={inputCls}
+          rows={2}
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="e.g. Thank you for your prompt payment."
+        />
+      </div>
+
+      {/* Emailing it to the school */}
+      <div className="rounded-lg border border-gray-200 bg-white p-2.5 space-y-2">
+        <p className={labelCls}>Email to the school</p>
+        {!recipients ? (
+          <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+        ) : (
+          <>
+            <p className="text-xs text-gray-700">
+              To:{' '}
+              {recipients.owner_email
+                ? <><span className="font-medium">{recipients.owner_email}</span> <span className="text-gray-400">(registration email)</span></>
+                : <span className="text-gray-500">no registration email on record, so copy someone in below</span>}
+            </p>
+            {recipients.admins.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-500">Copy in the school's other admins:</p>
+                {recipients.admins.map(admin => (
+                  <label key={admin.email} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={copied.includes(admin.email)}
+                      onChange={() => toggleCopied(admin.email)}
+                    />
+                    {admin.name} <span className="text-gray-400">{admin.email}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <input
+              className={inputCls}
+              value={otherCc}
+              onChange={e => setOtherCc(e.target.value)}
+              placeholder="Other emails to copy in, separated by commas"
+            />
+          </>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-gray-700">{error}</p>}
+      {sent && <p className="text-xs font-medium text-gray-900">{sent}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={downloading || sending}
+          className="inline-flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
+          {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+          Download
+        </button>
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={sending || downloading || !recipients || (!recipients.owner_email && cc.length === 0)}
+          className="inline-flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg bg-black hover:bg-gray-800 text-white transition-colors disabled:opacity-50"
+        >
+          {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+          Send to School
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // MANAGE INVOICE MODAL
 // ============================================================================
 
@@ -134,6 +287,7 @@ const ManageInvoiceModal: React.FC<{
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [receiptFor, setReceiptFor] = useState<string | null>(null);
 
   const choose = (next: InvoiceAction) => {
     setAction(next);
@@ -219,14 +373,33 @@ const ManageInvoiceModal: React.FC<{
               <p className={labelCls}>Payments</p>
               <div className="space-y-1.5">
                 {invoice.payments.map(p => (
-                  <div key={p.id} className="flex justify-between text-xs bg-gray-50 rounded-lg px-3 py-2">
-                    <span className="text-gray-700">
-                      {getPaymentMethodName(p.payment_method)} · {formatDate(p.created_at)}
-                      {p.confirmation_notes ? ` · ${p.confirmation_notes}` : ''}
-                    </span>
-                    <span className="text-gray-900 font-medium whitespace-nowrap pl-2">
-                      {formatCurrency(p.amount)} <span className="text-gray-400 capitalize">{p.status}</span>
-                    </span>
+                  <div key={p.id} className="bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="flex justify-between items-center gap-2 text-xs">
+                      <span className="text-gray-700">
+                        {getPaymentMethodName(p.payment_method)} · {formatDate(p.created_at)}
+                        {p.confirmation_notes ? ` · ${p.confirmation_notes}` : ''}
+                      </span>
+                      <span className="flex items-center gap-2 text-gray-900 font-medium whitespace-nowrap">
+                        {formatCurrency(p.amount)} <span className="text-gray-400 capitalize">{p.status}</span>
+                        {p.status === 'confirmed' && (
+                          <button
+                            type="button"
+                            onClick={() => setReceiptFor(receiptFor === p.id ? null : p.id)}
+                            className="inline-flex items-center gap-1 px-2 py-1 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-100 transition-colors"
+                          >
+                            <FileDown className="w-3 h-3" /> Receipt
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    {receiptFor === p.id && (
+                      <ReceiptForm
+                        paymentId={p.id}
+                        schoolName={invoice.school_name}
+                        fallbackName={`Receipt-${invoice.invoice_number}.pdf`}
+                        onDone={() => setReceiptFor(null)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
