@@ -23,6 +23,9 @@ class Migration(migrations.Migration):
         ("schoolSettings", "0012_landingsection_contact_streetview_embed_and_more"),
         ("tenants", "0022_arrival_needs_gate_tracker"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        # school_from_creator reads the creator's tenant, which users gained
+        # here; without it a fresh database can run this before that field exists.
+        ("users", "0007_change_school_to_tenant"),
     ]
 
     operations = [
