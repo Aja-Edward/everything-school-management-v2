@@ -87,6 +87,13 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(classroom_id=params["classroom"])
         if params.get("subject"):
             qs = qs.filter(subject_id=params["subject"])
+        if "student" in params:
+            # One pupil's current class. This narrows what the viewer may
+            # already see; it never widens it.
+            student = params["student"]
+            if not student.isdigit():
+                return qs.none()
+            qs = qs.filter(classroom_id__in=enrolled_classroom_ids([int(student)], tenant))
         return qs
 
     def get_serializer_context(self):
@@ -94,6 +101,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         kind, who = self.viewer()
         context["tenant"] = getattr(self.request, "tenant", None)
         context["teacher"] = who if kind == "teacher" else None
+        context["is_admin"] = kind == "admin"
         return context
 
     # ── Writes ───────────────────────────────────────────────────────────

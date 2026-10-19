@@ -49,7 +49,7 @@ const AssignmentCard: React.FC<AssignmentCardProps> = ({ assignment, showClass =
               <Pencil className="w-4 h-4" />
             </button>
           )}
-          {onDelete && assignment.can_edit && (
+          {onDelete && assignment.can_delete && (
             <button
               type="button"
               onClick={() => onDelete(assignment)}

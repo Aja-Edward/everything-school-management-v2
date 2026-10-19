@@ -24,8 +24,10 @@ import {
   Droplets,
   Activity,
   Hash,
+  ClipboardList,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
+import StudentAssignmentsPanel from '@/components/assignments/StudentAssignmentsPanel';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import StudentService, { Student, GenderType, EducationLevelType } from '@/services/StudentService';
 import { toast } from 'react-toastify';
@@ -422,6 +424,15 @@ const StudentDetailView: React.FC = () => {
                 />
               </SectionCard>
             </div>
+
+            {/* Assignments set for the student's current class */}
+            <SectionCard
+              title="Assignments"
+              icon={<ClipboardList className="w-4.5 h-4.5" />}
+              iconColor="text-blue-500"
+            >
+              <StudentAssignmentsPanel studentId={student.id} />
+            </SectionCard>
 
             {/* Contact Information */}
             <SectionCard

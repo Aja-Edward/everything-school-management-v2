@@ -371,6 +371,44 @@ class AssignmentAccessTest(APITestCase):
         self.assertEqual(self.patch(self.jss1_maths, {"title": "x"}).status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self.delete(self.jss1_maths).status_code, status.HTTP_204_NO_CONTENT)
 
+    def test_admin_filters_by_one_students_class(self):
+        """The admin's student page and parent view show one pupil's class."""
+        s = self.school
+        self.as_user(s.admin)
+
+        jss1 = self.client.get(URL, {"student": s.jss1_child.id}, HTTP_X_TENANT_SLUG=self.slug)
+        jss2 = self.client.get(URL, {"student": s.jss2_child.id}, HTTP_X_TENANT_SLUG=self.slug)
+
+        self.assertEqual(self.titles(jss1), ["Essay", "Fractions"])
+        self.assertEqual(self.titles(jss2), ["Algebra"])
+        self.assertTrue(all(row["can_delete"] and not row["can_edit"] for row in jss1.data))
+
+    def test_student_filter_never_reaches_another_school(self):
+        s = self.school
+        self.as_user(s.admin)
+
+        foreign = self.client.get(URL, {"student": self.other.jss1_child.id}, HTTP_X_TENANT_SLUG=self.slug)
+        junk = self.client.get(URL, {"student": "abc"}, HTTP_X_TENANT_SLUG=self.slug)
+
+        self.assertEqual(self.titles(foreign), [])
+        self.assertEqual(self.titles(junk), [])
+
+    def test_student_filter_does_not_widen_what_a_parent_sees(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+
+        response = self.client.get(URL, {"student": s.jss2_child.id}, HTTP_X_TENANT_SLUG=self.slug)
+
+        self.assertEqual(self.titles(response), [])
+
+    def test_only_admins_and_authors_may_delete(self):
+        s = self.school
+        self.as_user(s.english_teacher.user)
+
+        rows = {row["title"]: row["can_delete"] for row in self.get().data}
+
+        self.assertEqual(rows, {"Essay": True, "Fractions": False})
+
     def test_section_admin_sees_only_their_levels(self):
         s = self.school
         primary_admin = s.user("primary_admin", "primary_admin", is_staff=True)

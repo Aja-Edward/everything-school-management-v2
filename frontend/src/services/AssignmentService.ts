@@ -15,6 +15,7 @@ export interface Assignment {
   attachment_url: string;
   attachment_name: string;
   can_edit: boolean;
+  can_delete: boolean; // the author, or an admin
   created_at: string;
   updated_at: string;
 }
@@ -73,7 +74,7 @@ const send = async (method: 'POST' | 'PATCH', url: string, input: Partial<Assign
 };
 
 const AssignmentService = {
-  list: (params?: { classroom?: number; subject?: number }): Promise<Assignment[]> =>
+  list: (params?: { classroom?: number; subject?: number; student?: number }): Promise<Assignment[]> =>
     api.get('/api/assignments/', params),
 
   teachingOptions: (): Promise<TeachingOption[]> =>

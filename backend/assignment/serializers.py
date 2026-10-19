@@ -31,6 +31,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.SerializerMethodField()
     is_overdue = serializers.BooleanField(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
 
     attachment = serializers.FileField(write_only=True, required=False)
     remove_attachment = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -42,7 +43,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
             "subject", "subject_name", "teacher_name",
             "title", "instructions", "due_date", "is_overdue",
             "attachment", "remove_attachment", "attachment_url", "attachment_name",
-            "can_edit", "created_at", "updated_at",
+            "can_edit", "can_delete", "created_at", "updated_at",
         ]
         read_only_fields = ["attachment_url", "attachment_name", "created_at", "updated_at"]
 
@@ -62,6 +63,9 @@ class AssignmentSerializer(serializers.ModelSerializer):
     def get_can_edit(self, obj):
         teacher = self.context.get("teacher")
         return teacher is not None and obj.teacher_id == teacher.pk
+
+    def get_can_delete(self, obj):
+        return bool(self.context.get("is_admin")) or self.get_can_edit(obj)
 
     def validate_attachment(self, value):
         ext = os.path.splitext(value.name)[1].lower()
