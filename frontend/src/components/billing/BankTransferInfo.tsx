@@ -23,11 +23,12 @@ interface BankTransferInfoProps {
   className?: string;
 }
 
-// Bank account details (should be fetched from settings in production)
+// The account schools pay Nuventa Cloud into. The invoice PDF prints the same
+// account (backend/tenants/invoice_pdf.py, PLATFORM_BANK_ACCOUNT): change both.
 const BANK_DETAILS = {
-  bankName: 'Fidelity Bank PLC (FBP)',
-  accountName: 'Nuventa Ltd',
-  accountNumber: '0123456789',
+  bankName: 'Fidelity Bank PLC',
+  accountName: 'Nuventa Limited',
+  accountNumber: '4011611294',
 };
 
 // ============================================================================

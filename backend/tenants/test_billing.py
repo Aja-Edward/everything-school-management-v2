@@ -15,6 +15,7 @@ from rest_framework.test import APITestCase
 from academics.models import AcademicSession, Term, TermType
 from students.models import Student
 from tenants.models import SentSms, Tenant, TenantInvoice, TenantPayment, TenantService
+from tenants.test_platform_billing import pdf_text
 
 User = get_user_model()
 
@@ -318,6 +319,10 @@ class SchoolBillingTest(APITestCase):
         self.assertIn(f'filename="{invoice["invoice_number"]}.pdf"',
                       response["Content-Disposition"])
         self.assertTrue(response.content.startswith(b"%PDF"))
+        # Unpaid, so it says where to transfer the money.
+        text = pdf_text(response.content)
+        self.assertIn("4011611294", text)
+        self.assertIn(f"PAY-{invoice['invoice_number']}", text)
 
     def test_only_school_admins_can_download_an_invoice(self):
         invoice_id = self.generate("term").data["id"]

@@ -16,6 +16,15 @@ from django.utils import timezone
 
 from .models import PlatformContent
 
+# The account schools pay into by transfer. The Pay Now screen shows the same
+# account (frontend/src/components/billing/BankTransferInfo.tsx): change both.
+PLATFORM_BANK_ACCOUNT = {
+    "bank": "Fidelity Bank PLC",
+    "name": "Nuventa Limited",
+    "number": "4011611294",
+}
+
+
 # The standard PDF fonts have no Naira sign, so amounts are written "NGN".
 def _money(value):
     return f"NGN {value:,.2f}"
@@ -244,12 +253,29 @@ def render_invoice_pdf(invoice):
 
     # -- How to pay, and the approval ------------------------------------------
     if invoice.balance_due > 0 and invoice.status != "cancelled":
+        account = PLATFORM_BANK_ACCOUNT
+        bank = Table(
+            [[Paragraph(k, label), Paragraph(v, body)] for k, v in (
+                ("Bank", account["bank"]),
+                ("Account name", account["name"]),
+                ("Account number", f"<b>{account['number']}</b>"),
+                ("Amount", f"<b>{_money(invoice.balance_due)}</b>"),
+                ("Narration", f"<b>PAY-{escape(invoice.invoice_number)}</b>"),
+            )],
+            colWidths=[32*mm, width * 0.5], hAlign="LEFT")
+        bank.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), STRIPE),
+            ("BOX", (0, 0), (-1, -1), 0.5, LINE),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
         elements += [
             Paragraph("How to pay", h2),
             Paragraph(
-                "Pay online by card or bank transfer from the Billing page in "
-                "Nuventa Cloud. If paying by bank transfer, use this reference in "
-                f"the transfer narration: <b>PAY-{invoice.invoice_number}</b>", body),
+                "By bank transfer to the account below, using the narration shown, "
+                "or by card from the Billing page in Nuventa Cloud.", body),
+            Spacer(1, 2*mm),
+            bank,
             Spacer(1, 10*mm),
         ]
         sign = Table(
