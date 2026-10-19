@@ -223,6 +223,18 @@ export const applyInvoiceDiscount = async (
 };
 
 /**
+ * Bill at least `count` students, for ones the school has admitted but not
+ * yet enrolled; 0 bills just the enrolled ones (Platform admin only)
+ */
+export const setInvoiceMinStudents = async (
+  invoiceId: string,
+  count: number,
+  reason: string
+): Promise<Invoice> => {
+  return await api.post(`/api/tenants/invoices/${invoiceId}/min-students/`, { count, reason });
+};
+
+/**
  * Record money received outside the app - cash, cheque, an unreported
  * transfer - as a confirmed payment (Platform admin only)
  */
@@ -522,6 +534,7 @@ export default {
   // Platform Admin
   getPlatformBillingSummary,
   applyInvoiceDiscount,
+  setInvoiceMinStudents,
   recordInvoicePayment,
   getPendingPayments,
   activatePayment,

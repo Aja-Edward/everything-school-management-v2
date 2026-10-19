@@ -3317,6 +3317,9 @@ export interface Invoice {
   term_name: string | null;
   base_price_per_student: string;
   student_count: number;
+  /** Bill at least this many students, for ones not yet enrolled; 0 when unset. */
+  min_student_count: number;
+  min_student_reason: string;
   base_amount: string;
   services_amount: string;
   subtotal: string;

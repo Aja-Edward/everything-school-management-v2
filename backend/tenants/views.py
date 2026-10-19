@@ -1749,6 +1749,34 @@ class TenantInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
         invoice.save()
         return Response(TenantInvoiceSerializer(invoice).data)
 
+    @action(detail=True, methods=['post'], url_path='min-students',
+            permission_classes=[IsAuthenticated, IsPlatformAdmin])
+    def min_students(self, request, pk=None):
+        """
+        Bill at least `count` students, for ones the school has admitted but
+        not yet enrolled in the app, with the `reason` printed on the invoice.
+        0 goes back to billing just the enrolled students.
+        """
+        invoice = self.get_object()
+        if invoice.status == 'cancelled' or billing.is_settled_or_settling(invoice):
+            return Response(
+                {'error': 'Only an invoice nothing has been paid towards can be changed'},
+                status=400)
+        try:
+            count = int(request.data.get('count'))
+        except (TypeError, ValueError):
+            return Response({'error': 'count must be a whole number'}, status=400)
+        if not 0 <= count <= 100000:
+            return Response({'error': 'count must be between 0 and 100000'}, status=400)
+
+        invoice.min_student_count = count
+        invoice.min_student_reason = (
+            (request.data.get('reason') or '').strip()[:255] if count else '')
+        invoice.save()
+        billing.refresh_invoice(invoice)
+        invoice.refresh_from_db()
+        return Response(TenantInvoiceSerializer(invoice).data)
+
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsPlatformAdmin])
     def cancel(self, request, pk=None):
         """Cancel an invoice nobody has paid anything towards."""

@@ -483,6 +483,8 @@ class TenantInvoiceSerializer(serializers.ModelSerializer):
             "term_name",
             "base_price_per_student",
             "student_count",
+            "min_student_count",
+            "min_student_reason",
             "base_amount",
             "services_amount",
             "subtotal",

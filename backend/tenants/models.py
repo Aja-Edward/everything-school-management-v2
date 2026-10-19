@@ -574,6 +574,11 @@ class TenantInvoice(models.Model):
         help_text="Basic package price per student for one term, in Naira"
     )
     student_count = models.PositiveIntegerField(default=0)
+    # Set by a platform admin to bill students the school has admitted but
+    # not yet enrolled in the app. The invoice bills whichever is more, this
+    # or the active students, so once they are enrolled nobody is billed twice.
+    min_student_count = models.PositiveIntegerField(default=0)
+    min_student_reason = models.CharField(max_length=255, blank=True)
 
     # Amounts
     base_amount = models.DecimalField(

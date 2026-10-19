@@ -44,6 +44,28 @@ def period_label(invoice):
     return f"{invoice.academic_session.name} session"
 
 
+def _bills_unenrolled(invoice):
+    """A platform admin set a student count above what the school had enrolled."""
+    return invoice.min_student_count > 0 and invoice.student_count == invoice.min_student_count
+
+
+def _students_billed(invoice):
+    """
+    The count, split into enrolled and still to enrol while the invoice is
+    unpaid. Once paid the split is left off: by then later enrolments would
+    make it wrong.
+    """
+    from .billing import active_student_count, is_settled_or_settling
+
+    count = str(invoice.student_count)
+    if not _bills_unenrolled(invoice) or is_settled_or_settling(invoice):
+        return count
+    enrolled = active_student_count(invoice.tenant)
+    if enrolled >= invoice.student_count:
+        return count
+    return f"{count} ({enrolled} enrolled, {invoice.student_count - enrolled} to enrol)"
+
+
 def invoice_filename(invoice):
     return f"{invoice.invoice_number}.pdf"
 
@@ -174,7 +196,7 @@ def render_invoice_pdf(invoice):
         ["Billing", "Whole session (3 terms)" if invoice.billing_period == "session" else "One term"],
         ["Issued", _date(invoice.issue_date)],
         ["Due", _date(invoice.due_date)],
-        ["Students billed", str(invoice.student_count)],
+        ["Students billed", _students_billed(invoice)],
     ]
     if invoice.paid_at:
         facts.append(["Paid on", _date(invoice.paid_at)])
@@ -271,6 +293,13 @@ def render_invoice_pdf(invoice):
             ("LINEBELOW", (0, 0), (-1, -1), 0.3, LINE),
         ]))
         elements += [pay_tbl, Spacer(1, 6*mm)]
+
+    if _bills_unenrolled(invoice):
+        reason = f" ({invoice.min_student_reason})" if invoice.min_student_reason else ""
+        elements += [Paragraph(escape(
+            f"Billed for {invoice.student_count} students, including students admitted "
+            f"but not yet enrolled in Nuventa Cloud{reason}. They are not billed again "
+            "when they are enrolled this term."), small), Spacer(1, 4*mm)]
 
     if invoice.notes:
         elements += [Paragraph("Notes", h2),

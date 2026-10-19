@@ -375,3 +375,82 @@ class SendReceiptTest(PlatformBillingCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("refused", response.data["error"])
+
+
+class MinStudentsTest(PlatformBillingCase):
+    """Billing students a school has admitted but not yet enrolled in the app."""
+
+    def setUp(self):
+        super().setUp()
+        self.invoice = self.invoice_for(self.beta)  # 5 enrolled students: 4000
+        self.as_platform()
+
+    def set_min(self, count, reason=""):
+        return self.post(f"{INVOICES_URL}{self.invoice.id}/min-students/",
+                         {"count": count, "reason": reason})
+
+    def enrol(self, n):
+        user = User.objects.create_user(
+            username=f"late-{n}", email=f"late-{n}@example.com", role="student",
+            password=None, is_active=True, tenant=self.beta)
+        Student.objects.create(tenant=self.beta, user=user, gender="M",
+                               date_of_birth=date(2015, 1, 1))
+
+    def test_the_invoice_bills_the_students_still_to_be_enrolled(self):
+        response = self.set_min(8, "3 admitted, not yet enrolled")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["student_count"], 8)
+        self.assertEqual(Decimal(response.data["total_amount"]), Decimal("6400.00"))
+        text = pdf_text(self.client.get(f"{INVOICES_URL}{self.invoice.id}/pdf/").content)
+        # PDF text escapes brackets.
+        self.assertIn(r"8 \(5 enrolled, 3 to enrol\)", text)
+        self.assertIn("3 admitted, not yet enrolled", text)
+
+    def test_enrolling_them_later_does_not_bill_them_twice(self):
+        self.set_min(8)
+        for n in range(3):
+            self.enrol(n)
+
+        invoice, _ = billing.invoice_for_period(self.beta, "term")
+
+        self.assertEqual(invoice.student_count, 8)
+        self.assertEqual(invoice.total_amount, Decimal("6400.00"))
+
+    def test_more_students_enrolled_than_the_minimum_are_all_billed(self):
+        self.set_min(6)
+        for n in range(3):
+            self.enrol(n)
+
+        invoice, _ = billing.invoice_for_period(self.beta, "term")
+
+        self.assertEqual(invoice.student_count, 8)
+
+    def test_zero_goes_back_to_the_enrolled_students(self):
+        self.set_min(8, "admitted")
+
+        response = self.set_min(0)
+
+        self.assertEqual(response.data["student_count"], 5)
+        self.assertEqual(response.data["min_student_reason"], "")
+
+    def test_an_invoice_with_money_against_it_cannot_be_changed(self):
+        self.post(f"{INVOICES_URL}{self.invoice.id}/record-payment/", {"amount": "1000"})
+
+        response = self.set_min(8)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.student_count, 5)
+
+    def test_only_platform_admins_set_it(self):
+        school_admin = User.objects.create_user(
+            username="beta_admin", email="beta_admin@example.com", role="superadmin",
+            password=None, is_active=True, tenant=self.beta)
+        self.client.force_authenticate(school_admin)
+
+        response = self.client.post(
+            f"{INVOICES_URL}{self.invoice.id}/min-students/", {"count": 50}, format="json",
+            HTTP_X_TENANT_SLUG=self.beta.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -144,10 +144,11 @@ def is_settled_or_settling(invoice):
 def refresh_invoice(invoice):
     """
     Recount the students and reprice the lines of an invoice nobody has paid,
-    taking on any texts sent since the school was last invoiced.
+    taking on any texts sent since the school was last invoiced. It bills at
+    least the invoice's min_student_count.
     """
     unbilled_sms(invoice.tenant).update(invoice=invoice)
-    students = active_student_count(invoice.tenant)
+    students = max(active_student_count(invoice.tenant), invoice.min_student_count)
     lines = price_lines(
         invoice.tenant, invoice.billing_period, students, invoice.sent_sms.count())
 

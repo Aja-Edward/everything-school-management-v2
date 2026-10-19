@@ -14,6 +14,7 @@ import { Plus, X, Loader2, AlertCircle, Search, ChevronRight, FileDown, Send } f
 import api from '@/services/api';
 import {
   applyInvoiceDiscount,
+  setInvoiceMinStudents,
   cancelInvoice,
   formatCurrency,
   generateInvoice,
@@ -24,6 +25,7 @@ import {
   invoicePeriodLabel,
   isInvoiceOverdue,
   recordInvoicePayment,
+  saveInvoicePDF,
   saveReceiptPDF,
   getReceiptRecipients,
   sendReceipt,
@@ -38,7 +40,44 @@ interface School {
 }
 
 type StatusFilter = '' | 'pending' | 'partially_paid' | 'paid' | 'cancelled';
-type InvoiceAction = 'payment' | 'discount' | 'cancel';
+type InvoiceAction = 'payment' | 'discount' | 'students' | 'cancel';
+
+/** What each action's fields say. No amountLabel means the action has no amount. */
+const ACTION_COPY: Record<InvoiceAction, {
+  amountLabel?: string;
+  textLabel: string;
+  textPlaceholder: string;
+  help: string;
+  submit: string;
+}> = {
+  payment: {
+    amountLabel: 'Amount received (₦)',
+    textLabel: 'Notes',
+    textPlaceholder: 'e.g. Cash paid at office',
+    help: 'For money received outside the app. A school still awaiting activation is activated once the invoice is fully paid.',
+    submit: 'Record Payment',
+  },
+  discount: {
+    amountLabel: 'Discount (₦)',
+    textLabel: 'Reason (shown on the invoice)',
+    textPlaceholder: 'e.g. Pilot school',
+    help: 'Replaces any earlier discount on this invoice.',
+    submit: 'Apply Discount',
+  },
+  students: {
+    amountLabel: 'Bill at least this many students',
+    textLabel: 'Reason (shown on the invoice)',
+    textPlaceholder: 'e.g. 3 new students admitted, not yet enrolled',
+    help: "For students the school has admitted but not yet enrolled in the app. The invoice bills this number or the enrolled students, whichever is more, so they aren't billed twice once enrolled. 0 bills just the enrolled students.",
+    submit: 'Update Students Billed',
+  },
+  cancel: {
+    textLabel: 'Reason',
+    textPlaceholder: 'e.g. Raised in error',
+    help: 'Only possible while nothing has been paid or reported against it. The school can then raise a fresh invoice for the period.',
+    submit: 'Cancel Invoice',
+  },
+};
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: '', label: 'All' },
@@ -291,9 +330,29 @@ const ManageInvoiceModal: React.FC<{
 
   const choose = (next: InvoiceAction) => {
     setAction(next);
-    setAmount(next === 'discount' ? String(Number(invoice.discount_amount) || '') : '');
-    setText(next === 'discount' ? invoice.discount_reason : '');
+    setAmount(
+      next === 'discount' ? String(Number(invoice.discount_amount) || '')
+      : next === 'students' ? String(invoice.min_student_count || '')
+      : '');
+    setText(
+      next === 'discount' ? invoice.discount_reason
+      : next === 'students' ? invoice.min_student_reason
+      : '');
     setError(null);
+  };
+  const copy = ACTION_COPY[action];
+
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const handleDownloadInvoice = async () => {
+    setDownloadingInvoice(true);
+    setError(null);
+    try {
+      await saveInvoicePDF(invoice);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not download the invoice.'));
+    } finally {
+      setDownloadingInvoice(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -305,6 +364,8 @@ const ManageInvoiceModal: React.FC<{
         updated = await recordInvoicePayment(invoice.id, amount, text);
       } else if (action === 'discount') {
         updated = await applyInvoiceDiscount(invoice.id, amount || '0', text);
+      } else if (action === 'students') {
+        updated = await setInvoiceMinStudents(invoice.id, Number(amount || 0), text);
       } else {
         if (!window.confirm(`Cancel ${invoice.invoice_number} for ${invoice.school_name}?`)) {
           setSaving(false);
@@ -332,9 +393,20 @@ const ManageInvoiceModal: React.FC<{
               {invoice.school_name} · {invoicePeriodLabel(invoice)} · {invoice.student_count} students
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleDownloadInvoice}
+              disabled={downloadingInvoice}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {downloadingInvoice ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+              Invoice PDF
+            </button>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -409,10 +481,11 @@ const ManageInvoiceModal: React.FC<{
           {/* Actions */}
           {open ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {([
                   ['payment', 'Record payment'],
                   ['discount', 'Discount'],
+                  ['students', 'Students billed'],
                   ['cancel', 'Cancel invoice'],
                 ] as const).map(([key, label]) => (
                   <button
@@ -432,38 +505,33 @@ const ManageInvoiceModal: React.FC<{
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-xs text-gray-700">{error}</div>
               )}
 
-              {action !== 'cancel' && (
+              {copy.amountLabel && (
                 <div>
-                  <label className={labelCls}>{action === 'payment' ? 'Amount received (₦)' : 'Discount (₦)'}</label>
+                  <label className={labelCls}>{copy.amountLabel}</label>
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step={action === 'students' ? '1' : '0.01'}
                     className={inputCls}
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
-                    placeholder={action === 'payment' ? String(Number(invoice.balance_due)) : '0'}
+                    placeholder={
+                      action === 'payment' ? String(Number(invoice.balance_due))
+                      : action === 'students' ? String(invoice.student_count)
+                      : '0'}
                   />
                 </div>
               )}
               <div>
-                <label className={labelCls}>
-                  {action === 'payment' ? 'Notes' : action === 'discount' ? 'Reason (shown on the invoice)' : 'Reason'}
-                </label>
+                <label className={labelCls}>{copy.textLabel}</label>
                 <input
                   className={inputCls}
                   value={text}
                   onChange={e => setText(e.target.value)}
-                  placeholder={action === 'payment' ? 'e.g. Cash paid at office' : action === 'discount' ? 'e.g. Pilot school' : 'e.g. Raised in error'}
+                  placeholder={copy.textPlaceholder}
                 />
               </div>
-              <p className="text-xs text-gray-400">
-                {action === 'payment'
-                  ? 'For money received outside the app. A school still awaiting activation is activated once the invoice is fully paid.'
-                  : action === 'discount'
-                  ? 'Replaces any earlier discount on this invoice.'
-                  : 'Only possible while nothing has been paid or reported against it. The school can then raise a fresh invoice for the period.'}
-              </p>
+              <p className="text-xs text-gray-400">{copy.help}</p>
             </div>
           ) : (
             <p className="text-xs text-gray-500">This invoice is {invoice.status}; there is nothing more to do on it.</p>
@@ -481,7 +549,7 @@ const ManageInvoiceModal: React.FC<{
               className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-sm font-semibold rounded-lg bg-black hover:bg-gray-800 text-white transition-colors disabled:opacity-50"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {action === 'payment' ? 'Record Payment' : action === 'discount' ? 'Apply Discount' : 'Cancel Invoice'}
+              {copy.submit}
             </button>
           </div>
         )}
