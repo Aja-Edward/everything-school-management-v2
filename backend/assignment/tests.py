@@ -1,3 +1,450 @@
-from django.test import TestCase
+"""
+Assignments: who can see and change what.
 
-# Create your tests here.
+A teacher sets work only for the classes (and subjects) they teach and only
+edits their own; parents see the work for their own children's current
+classes; students their own class's; admins every class within their levels.
+Nothing crosses from one school to another.
+"""
+
+from datetime import date, timedelta
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APITestCase
+
+from academics.models import AcademicSession, EducationLevel, Term, TermType
+from classroom.models import (
+    Class,
+    Classroom,
+    ClassroomCoTeacher,
+    ClassroomTeacherAssignment,
+    Section,
+    StudentEnrollment,
+)
+from parent.models import ParentProfile, ParentStudentRelationship
+from students.models import Student
+from subject.models import Subject
+from teacher.models import Teacher
+from tenants.models import Tenant
+
+from .models import Assignment
+
+User = get_user_model()
+URL = "/api/assignments/"
+
+
+class School:
+    """One school with two JSS classrooms, their teachers, pupils and parents."""
+
+    def __init__(self, slug):
+        self.slug = slug
+        self.tenant = Tenant.objects.create(
+            name=slug.replace("-", " ").title(), slug=slug, status="active",
+            is_active=True, owner_email=f"{slug}@example.com")
+        level, _ = EducationLevel.objects.update_or_create(
+            tenant=self.tenant, code="jss",
+            defaults={"name": "Junior Secondary", "level_type": "JUNIOR_SECONDARY"})
+        session = AcademicSession.objects.create(
+            tenant=self.tenant, name="2026/2027", start_date=date(2026, 9, 7),
+            end_date=date(2027, 7, 23), is_current=True)
+        term_type, _ = TermType.objects.get_or_create(
+            tenant=self.tenant, code="FIRST_TERM", defaults={"name": "First Term", "display_order": 1})
+        term = Term.objects.create(
+            tenant=self.tenant, term_type=term_type, academic_session=session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16))
+
+        def classroom(name, number):
+            grade = Class.objects.create(
+                tenant=self.tenant, name=name, code=f"{slug}-{number}",
+                education_level=level, grade_number=number, order=number)
+            section = Section.objects.create(tenant=self.tenant, class_grade=grade, name="A")
+            return Classroom.objects.create(
+                tenant=self.tenant, name=name, section=section,
+                academic_session=session, term=term)
+
+        self.jss1 = classroom("JSS 1", 1)
+        self.jss2 = classroom("JSS 2", 2)
+        self.maths = Subject.objects.create(tenant=self.tenant, name="Mathematics", code="MTH-JSS")
+        self.english = Subject.objects.create(tenant=self.tenant, name="English", code="ENG-JSS")
+
+        # JSS 1: a form teacher, a maths teacher and an English teacher.
+        self.form_teacher = self.teacher("form")
+        self.jss1.class_teacher = self.form_teacher
+        self.jss1.save()
+        self.maths_teacher = self.teacher("maths")
+        self.english_teacher = self.teacher("english")
+        self.teaches(self.maths_teacher, self.jss1, self.maths)
+        self.teaches(self.english_teacher, self.jss1, self.english)
+        # JSS 2: someone who never teaches JSS 1.
+        self.jss2_teacher = self.teacher("jss2")
+        self.teaches(self.jss2_teacher, self.jss2, self.maths)
+
+        self.jss1_child = self.student("ada")
+        self.jss2_child = self.student("bayo")
+        self.enrol(self.jss1_child, self.jss1)
+        self.enrol(self.jss2_child, self.jss2)
+        self.jss1_parent = self.parent("ada_mum", self.jss1_child)
+        self.jss2_parent = self.parent("bayo_dad", self.jss2_child)
+
+        self.admin = self.user("admin", "admin")
+
+    def user(self, name, role, **extra):
+        return User.objects.create_user(
+            username=f"{self.slug}_{name}", email=f"{name}@{self.slug}.example.com",
+            first_name=name.title(), last_name="Test", role=role,
+            password=None, is_active=True, tenant=self.tenant, **extra)
+
+    def teacher(self, name):
+        return Teacher.objects.create(
+            tenant=self.tenant, user=self.user(name, "teacher"), employee_id=f"T-{name}")
+
+    def teaches(self, teacher, classroom, subject):
+        ClassroomTeacherAssignment.objects.create(
+            tenant=self.tenant, teacher=teacher, classroom=classroom, subject=subject)
+
+    def student(self, name):
+        return Student.objects.create(
+            tenant=self.tenant, user=self.user(name, "student"), gender="F",
+            date_of_birth=date(2014, 5, 1))
+
+    def enrol(self, student, classroom):
+        StudentEnrollment.objects.create(tenant=self.tenant, student=student, classroom=classroom)
+
+    def parent(self, name, child):
+        profile = ParentProfile.objects.create(tenant=self.tenant, user=self.user(name, "parent"))
+        ParentStudentRelationship.objects.create(
+            tenant=self.tenant, parent=profile, student=child, relationship="Mother")
+        return profile
+
+    def assignment(self, classroom, teacher, subject=None, due_in_days=7, title="Homework"):
+        return Assignment.objects.create(
+            tenant=self.tenant, classroom=classroom, teacher=teacher, subject=subject,
+            title=title, instructions="Do exercises 1-10.",
+            due_date=timezone.localdate() + timedelta(days=due_in_days))
+
+
+class AssignmentAccessTest(APITestCase):
+    def setUp(self):
+        self.school = School("assign-school")
+        self.other = School("assign-other")
+        s = self.school
+        self.jss1_maths = s.assignment(s.jss1, s.maths_teacher, s.maths, title="Fractions")
+        self.jss1_overdue = s.assignment(s.jss1, s.english_teacher, s.english, due_in_days=-2, title="Essay")
+        self.jss2_maths = s.assignment(s.jss2, s.jss2_teacher, s.maths, title="Algebra")
+        self.elsewhere = self.other.assignment(
+            self.other.jss1, self.other.maths_teacher, self.other.maths, title="Other school")
+
+    # ── helpers ──
+
+    def as_user(self, user, school=None):
+        self.client.force_authenticate(user=user)
+        self.slug = (school or self.school).slug
+
+    def get(self, path=""):
+        return self.client.get(URL + path, HTTP_X_TENANT_SLUG=self.slug)
+
+    def post(self, data, format="json"):
+        return self.client.post(URL, data, format=format, HTTP_X_TENANT_SLUG=self.slug)
+
+    def patch(self, assignment, data):
+        return self.client.patch(f"{URL}{assignment.id}/", data, format="json", HTTP_X_TENANT_SLUG=self.slug)
+
+    def delete(self, assignment):
+        return self.client.delete(f"{URL}{assignment.id}/", HTTP_X_TENANT_SLUG=self.slug)
+
+    def titles(self, response):
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return sorted(row["title"] for row in response.data)
+
+    def new(self, classroom, subject=None, **extra):
+        data = {"classroom": classroom.id, "title": "Reading", "instructions": "Read chapter 2.",
+                "due_date": str(timezone.localdate() + timedelta(days=3)), **extra}
+        if subject is not None:
+            data["subject"] = subject.id
+        return data
+
+    # ── teachers ──
+
+    def test_teacher_sets_an_assignment_for_their_class_and_subject(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        response = self.post(self.new(s.jss1, s.maths))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        created = Assignment.objects.get(id=response.data["id"])
+        self.assertEqual((created.tenant, created.teacher, created.created_by),
+                         (s.tenant, s.maths_teacher, s.maths_teacher.user))
+        self.assertTrue(response.data["can_edit"])
+
+    def test_teacher_cannot_set_work_for_a_class_they_do_not_teach(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        response = self.post(self.new(s.jss2, s.maths))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("classroom", response.data)
+
+    def test_teacher_cannot_set_work_in_another_schools_class(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        response = self.post(self.new(self.other.jss1, s.maths))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertFalse(Assignment.objects.filter(tenant=self.other.tenant, title="Reading").exists())
+
+    def test_subject_teacher_is_held_to_their_own_subject(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        wrong_subject = self.post(self.new(s.jss1, s.english))
+        no_subject = self.post(self.new(s.jss1))
+
+        self.assertEqual(wrong_subject.status_code, status.HTTP_400_BAD_REQUEST, wrong_subject.data)
+        self.assertIn("subject", wrong_subject.data)
+        self.assertEqual(no_subject.status_code, status.HTTP_400_BAD_REQUEST, no_subject.data)
+        self.assertIn("subject", no_subject.data)
+
+    def test_form_teacher_may_set_work_for_any_class_subject_or_none(self):
+        s = self.school
+        self.as_user(s.form_teacher.user)
+
+        general = self.post(self.new(s.jss1))
+        english = self.post(self.new(s.jss1, s.english))
+
+        self.assertEqual(general.status_code, status.HTTP_201_CREATED, general.data)
+        self.assertEqual(english.status_code, status.HTTP_201_CREATED, english.data)
+
+    def test_co_teacher_teaches_the_class(self):
+        s = self.school
+        ClassroomCoTeacher.objects.create(tenant=s.tenant, classroom=s.jss2, teacher=s.english_teacher)
+        self.as_user(s.english_teacher.user)
+
+        response = self.post(self.new(s.jss2))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_teacher_lists_only_their_classes_assignments(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        self.assertEqual(self.titles(self.get()), ["Essay", "Fractions"])
+
+    def test_teacher_sees_but_cannot_change_a_colleagues_assignment(self):
+        s = self.school
+        self.as_user(s.english_teacher.user)
+
+        seen = self.get(f"{self.jss1_maths.id}/")
+        edited = self.patch(self.jss1_maths, {"title": "Mine now"})
+        deleted = self.delete(self.jss1_maths)
+
+        self.assertEqual(seen.status_code, status.HTTP_200_OK, seen.data)
+        self.assertFalse(seen.data["can_edit"])
+        self.assertEqual(edited.status_code, status.HTTP_403_FORBIDDEN, edited.data)
+        self.assertEqual(deleted.status_code, status.HTTP_403_FORBIDDEN)
+        self.jss1_maths.refresh_from_db()
+        self.assertEqual(self.jss1_maths.title, "Fractions")
+
+    def test_teacher_of_another_class_cannot_reach_it(self):
+        s = self.school
+        self.as_user(s.jss2_teacher.user)
+
+        self.assertEqual(self.get(f"{self.jss1_maths.id}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.patch(self.jss1_maths, {"title": "x"}).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.delete(self.jss1_maths).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Assignment.objects.filter(id=self.jss1_maths.id).exists())
+
+    def test_author_edits_and_deletes_their_assignment(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        edited = self.patch(self.jss1_maths, {"title": "Fractions II", "due_date": "2026-11-02"})
+        self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.data)
+        self.jss1_maths.refresh_from_db()
+        self.assertEqual((self.jss1_maths.title, self.jss1_maths.due_date), ("Fractions II", date(2026, 11, 2)))
+
+        deleted = self.delete(self.jss1_maths)
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Assignment.objects.filter(id=self.jss1_maths.id).exists())
+
+    def test_author_cannot_move_work_to_a_class_they_do_not_teach(self):
+        s = self.school
+        self.as_user(s.maths_teacher.user)
+
+        response = self.patch(self.jss1_maths, {"classroom": s.jss2.id})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.jss1_maths.refresh_from_db()
+        self.assertEqual(self.jss1_maths.classroom, s.jss1)
+
+    def test_teaching_options_list_each_class_with_its_subjects(self):
+        s = self.school
+        self.as_user(s.form_teacher.user)
+
+        response = self.get("teaching-options/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual([(c["name"], c["leads_class"]) for c in response.data], [("JSS 1", True)])
+        self.assertEqual(sorted(x["name"] for x in response.data[0]["subjects"]), ["English", "Mathematics"])
+
+    # ── parents ──
+
+    def test_parent_sees_their_childs_class_grouped_by_child(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+
+        response = self.get("children/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(len(response.data), 1)
+        group = response.data[0]
+        self.assertEqual(group["student_id"], s.jss1_child.id)
+        self.assertEqual([c["name"] for c in group["classrooms"]], ["JSS 1"])
+        overdue = {a["title"]: a["is_overdue"] for a in group["assignments"]}
+        self.assertEqual(overdue, {"Fractions": False, "Essay": True})
+        self.assertEqual(self.titles(self.get()), ["Essay", "Fractions"])
+
+    def test_parent_of_a_child_in_another_class_does_not_see_it(self):
+        s = self.school
+        self.as_user(s.jss2_parent.user)
+
+        self.assertEqual(self.titles(self.get()), ["Algebra"])
+        self.assertEqual(self.get(f"{self.jss1_maths.id}/").status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_parent_with_children_in_two_classes_gets_both_groups(self):
+        s = self.school
+        ParentStudentRelationship.objects.create(
+            tenant=s.tenant, parent=s.jss1_parent, student=s.jss2_child, relationship="Guardian")
+        self.as_user(s.jss1_parent.user)
+
+        response = self.get("children/")
+
+        groups = {g["student_id"]: sorted(a["title"] for a in g["assignments"]) for g in response.data}
+        self.assertEqual(groups, {s.jss1_child.id: ["Essay", "Fractions"], s.jss2_child.id: ["Algebra"]})
+
+    def test_a_child_who_left_the_class_no_longer_shows_its_work(self):
+        s = self.school
+        StudentEnrollment.objects.filter(student=s.jss1_child).update(is_active=False)
+        self.as_user(s.jss1_parent.user)
+
+        response = self.get("children/")
+
+        self.assertEqual(response.data[0]["assignments"], [])
+        self.assertEqual(self.titles(self.get()), [])
+
+    def test_parent_cannot_set_change_or_delete_assignments(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+
+        self.assertEqual(self.post(self.new(s.jss1, s.maths)).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.patch(self.jss1_maths, {"title": "x"}).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.delete(self.jss1_maths).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_children_view_is_for_parents_only(self):
+        self.as_user(self.school.maths_teacher.user)
+
+        self.assertEqual(self.get("children/").status_code, status.HTTP_403_FORBIDDEN)
+
+    # ── students ──
+
+    def test_student_sees_only_their_own_class(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+
+        self.assertEqual(self.titles(self.get()), ["Essay", "Fractions"])
+        self.assertEqual(self.post(self.new(s.jss1, s.maths)).status_code, status.HTTP_403_FORBIDDEN)
+
+    # ── admins ──
+
+    def test_admin_sees_every_class_and_may_delete_but_not_set(self):
+        s = self.school
+        self.as_user(s.admin)
+
+        self.assertEqual(self.titles(self.get()), ["Algebra", "Essay", "Fractions"])
+        self.assertEqual(self.post(self.new(s.jss1, s.maths)).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.patch(self.jss1_maths, {"title": "x"}).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.delete(self.jss1_maths).status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_section_admin_sees_only_their_levels(self):
+        s = self.school
+        primary_admin = s.user("primary_admin", "primary_admin", is_staff=True)
+        jss_admin = s.user("jss_admin", "junior_secondary_admin", is_staff=True)
+
+        self.as_user(primary_admin)
+        self.assertEqual(self.titles(self.get()), [])
+        self.as_user(jss_admin)
+        self.assertEqual(self.titles(self.get()), ["Algebra", "Essay", "Fractions"])
+
+    # ── other schools ──
+
+    def test_nobody_sees_another_schools_assignments(self):
+        s = self.school
+        for user in (s.admin, s.maths_teacher.user, s.jss1_parent.user, s.jss1_child.user):
+            self.as_user(user)
+            self.assertNotIn("Other school", self.titles(self.get()))
+            self.assertEqual(self.get(f"{self.elsewhere.id}/").status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_another_schools_teacher_gets_nothing_here(self):
+        """Under this school's header, the other school's teacher has no teacher profile here."""
+        s = self.school
+        self.as_user(self.other.maths_teacher.user)
+
+        self.assertEqual(self.titles(self.get()), [])
+        self.assertEqual(self.post(self.new(s.jss1, s.maths)).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_parent_linked_to_another_schools_child_sees_none_of_its_work(self):
+        s = self.school
+        ParentStudentRelationship.objects.create(
+            tenant=s.tenant, parent=s.jss2_parent, student=self.other.jss1_child, relationship="Guardian")
+        self.as_user(s.jss2_parent.user)
+
+        self.assertEqual(self.titles(self.get()), ["Algebra"])
+        self.assertEqual([g["student_id"] for g in self.get("children/").data], [s.jss2_child.id])
+
+
+class AssignmentAttachmentTest(APITestCase):
+    def setUp(self):
+        self.school = School("attach-school")
+        self.client.force_authenticate(user=self.school.maths_teacher.user)
+
+    def post(self, upload):
+        s = self.school
+        return self.client.post(URL, {
+            "classroom": s.jss1.id, "subject": s.maths.id, "title": "Worksheet",
+            "due_date": "2026-11-01", "attachment": upload,
+        }, format="multipart", HTTP_X_TENANT_SLUG=s.slug)
+
+    @patch("assignment.storage.delete_attachment")
+    @patch("assignment.storage.upload_attachment")
+    def test_attachment_is_uploaded_and_replaced(self, upload, delete):
+        upload.return_value = ("https://res.cloudinary.com/x/raw/upload/a.pdf", "assignments/1/a.pdf")
+
+        response = self.post(SimpleUploadedFile("worksheet.pdf", b"%PDF-1.4", content_type="application/pdf"))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["attachment_name"], "worksheet.pdf")
+        self.assertEqual(response.data["attachment_url"], "https://res.cloudinary.com/x/raw/upload/a.pdf")
+
+        upload.return_value = ("https://res.cloudinary.com/x/raw/upload/b.pdf", "assignments/1/b.pdf")
+        replaced = self.client.patch(
+            f"{URL}{response.data['id']}/",
+            {"attachment": SimpleUploadedFile("v2.pdf", b"%PDF-1.4", content_type="application/pdf")},
+            format="multipart", HTTP_X_TENANT_SLUG=self.school.slug)
+
+        self.assertEqual(replaced.status_code, status.HTTP_200_OK, replaced.data)
+        self.assertEqual(replaced.data["attachment_name"], "v2.pdf")
+        delete.assert_called_once_with("assignments/1/a.pdf")
+
+    @patch("assignment.storage.upload_attachment")
+    def test_unsupported_file_type_is_refused(self, upload):
+        response = self.post(SimpleUploadedFile("virus.exe", b"MZ", content_type="application/octet-stream"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("attachment", response.data)
+        upload.assert_not_called()

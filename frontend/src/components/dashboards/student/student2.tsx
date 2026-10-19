@@ -18,6 +18,7 @@ import StudentLessons from '@/pages/student/StudentLessons';
 import StudentAcademics from './StudentAcademics';
 import StudentGrades from './StudentGrades';
 import StudentAttendance from './StudentAttendance';
+import StudentAssignments from './StudentAssignments';
 import { useAuth } from '@/hooks/useAuth';
 import { useSettings } from '@/hooks/useSettings';
 import api from '@/services/api';
@@ -420,6 +421,8 @@ const StudentPortal = () => {
               <StudentGrades />
             ) : activeSection === 'attendance' ? (
               <StudentAttendance />
+            ) : activeSection === 'assignments' ? (
+              <StudentAssignments />
             ) : (
               <ComingSoonMessage sectionName={menuItems.find(item => item.id === activeSection)?.label} />
             )}

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import api from '@/services/api';
 import FamilyFees from './FamilyFees';
+import ChildAssignments from '@/components/assignments/ChildAssignments';
+import AssignmentService, { ChildAssignments as ChildAssignmentGroup } from '@/services/AssignmentService';
 import { toast } from 'react-toastify';
 
 interface StudentData {
@@ -45,9 +47,16 @@ const ParentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<StudentData[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<number | null>(null);
+  const [assignmentGroups, setAssignmentGroups] = useState<ChildAssignmentGroup[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
 
   useEffect(() => {
     fetchDashboardData();
+    // Separate from the dashboard call so a failure here never blanks the rest.
+    AssignmentService.forMyChildren()
+      .then((groups) => setAssignmentGroups(groups || []))
+      .catch((error) => console.error('Error fetching assignments:', error))
+      .finally(() => setAssignmentsLoading(false));
   }, []);
 
   const fetchDashboardData = async () => {
@@ -135,6 +144,8 @@ const ParentDashboard = () => {
   const currentStudent = dashboardData.find(s => s.student_id === selectedStudent) || dashboardData[0];
   // Paystack sends a parent back to ?tab=fees&reference=… after paying.
   const openOnFees = new URLSearchParams(window.location.search).get('tab') === 'fees';
+  const childAssignments = assignmentGroups.find(g => g.student_id === currentStudent.student_id);
+  const upcomingCount = childAssignments?.assignments.filter(a => !a.is_overdue).length || 0;
 
   return (
     <ParentLayout>
@@ -241,11 +252,24 @@ const ParentDashboard = () => {
 
         {/* Detailed Views */}
         <Tabs defaultValue={openOnFees ? 'fees' : 'attendance'} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:w-auto">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:w-auto">
             <TabsTrigger value="attendance">Attendance</TabsTrigger>
             <TabsTrigger value="results">Academic Results</TabsTrigger>
+            <TabsTrigger value="assignments">
+              Assignments{upcomingCount > 0 ? ` (${upcomingCount})` : ''}
+            </TabsTrigger>
             <TabsTrigger value="fees">Fees</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="assignments">
+            <ChildAssignments
+              whose={currentStudent.student}
+              classNames={(childAssignments?.classrooms || []).map(c => c.name)}
+              assignments={childAssignments?.assignments || []}
+              loading={assignmentsLoading}
+              notEnrolledMessage="Your child isn't enrolled in a class yet, so there are no assignments to show. Please contact the school."
+            />
+          </TabsContent>
 
           <TabsContent value="fees">
             <FamilyFees studentId={currentStudent.student_id} />

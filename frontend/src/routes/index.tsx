@@ -93,6 +93,7 @@ const TeacherStudentsList = lazy(() => import('./../pages/teacher/StudentsList')
 const TeacherExams = lazy(() => import('./../pages/teacher/Exams'));
 const TeacherResults = lazy(() => import('./../pages/teacher/Results'));
 const TeacherSchedule = lazy(() => import('./../pages/teacher/Schedule'));
+const TeacherAssignments = lazy(() => import('./../pages/teacher/Assignments'));
 const TeacherSubjects = lazy(() => import('./../pages/teacher/Subjects'));
 const TeacherSubjectDetail = lazy(() => import('./../pages/teacher/SubjectDetail'));
 const TeacherBio = lazy(() => import('./../components/dashboards/teacher/PublicTeacherBio'));
@@ -599,6 +600,10 @@ export const router = createBrowserRouter([
           {
             path: 'schedule',
             element: <LazyWrapper><TeacherSchedule /></LazyWrapper>,
+          },
+          {
+            path: 'assignments',
+            element: <LazyWrapper><TeacherAssignments /></LazyWrapper>,
           },
           {
             path: 'subjects',
