@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ClipboardList, Loader2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import AssignmentCard from './AssignmentCard';
+import { SubmissionStatus } from './SubmissionPanel';
 import AssignmentService, { Assignment, describeError, sortForReading } from '@/services/AssignmentService';
 
 interface StudentAssignmentsPanelProps {
@@ -72,7 +73,9 @@ const StudentAssignmentsPanel: React.FC<StudentAssignmentsPanelProps> = ({ stude
         {assignments.length - overdue} upcoming{overdue ? `, ${overdue} past due` : ''}
       </p>
       {shown.map((a) => (
-        <AssignmentCard key={a.id} assignment={a} onDelete={remove} />
+        <AssignmentCard key={a.id} assignment={a} onDelete={remove}>
+          <SubmissionStatus assignment={a} />
+        </AssignmentCard>
       ))}
       {assignments.length > limit && (
         <button

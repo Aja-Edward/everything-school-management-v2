@@ -11,6 +11,8 @@ interface ChildAssignmentsProps {
   assignments: Assignment[];
   loading?: boolean;
   notEnrolledMessage: string;
+  /** Shown under each card: the hand-in form for a student, its status for a parent. */
+  renderFooter?: (assignment: Assignment) => React.ReactNode;
 }
 
 /** The assignments of one pupil's current class, upcoming first. */
@@ -20,6 +22,7 @@ const ChildAssignments: React.FC<ChildAssignmentsProps> = ({
   assignments,
   loading,
   notEnrolledMessage,
+  renderFooter,
 }) => {
   const sorted = sortForReading(assignments);
   const overdue = sorted.filter((a) => a.is_overdue).length;
@@ -50,7 +53,9 @@ const ChildAssignments: React.FC<ChildAssignmentsProps> = ({
         ) : (
           <div className="space-y-3">
             {sorted.map((a) => (
-              <AssignmentCard key={a.id} assignment={a} showClass={classNames.length > 1} />
+              <AssignmentCard key={a.id} assignment={a} showClass={classNames.length > 1}>
+                {renderFooter?.(a)}
+              </AssignmentCard>
             ))}
           </div>
         )}

@@ -19,6 +19,7 @@ import {
 import api from '@/services/api';
 import FamilyFees from './FamilyFees';
 import ChildAssignments from '@/components/assignments/ChildAssignments';
+import { SubmissionStatus } from '@/components/assignments/SubmissionPanel';
 import AssignmentService, { ChildAssignments as ChildAssignmentGroup } from '@/services/AssignmentService';
 import { toast } from 'react-toastify';
 
@@ -268,6 +269,7 @@ const ParentDashboard = () => {
               assignments={childAssignments?.assignments || []}
               loading={assignmentsLoading}
               notEnrolledMessage="Your child isn't enrolled in a class yet, so there are no assignments to show. Please contact the school."
+              renderFooter={(a) => <SubmissionStatus assignment={a} />}
             />
           </TabsContent>
 

@@ -16,8 +16,40 @@ export interface Assignment {
   attachment_name: string;
   can_edit: boolean;
   can_delete: boolean; // the author, or an admin
+  /** The student's own hand-in, or the child's the list was asked about. */
+  submission: Submission | null;
+  submission_count: number | null; // teachers and admins only
+  student_count: number | null; // teachers and admins only
   created_at: string;
   updated_at: string;
+}
+
+export interface Submission {
+  id: number;
+  assignment: number;
+  student: number;
+  student_name: string;
+  text: string;
+  attachment_url: string;
+  attachment_name: string;
+  submitted_at: string;
+  is_late: boolean;
+  grade: string;
+  feedback: string;
+  is_graded: boolean; // once marked, the student can no longer change it
+  graded_by_name: string | null;
+  graded_at: string | null;
+}
+
+export interface SubmissionInput {
+  text?: string;
+  attachment?: File | null;
+  remove_attachment?: boolean;
+}
+
+export interface ClassSubmissions {
+  can_grade: boolean;
+  students: { student_id: number; student_name: string; submission: Submission | null }[];
 }
 
 export interface TeachingOption {
@@ -49,7 +81,7 @@ const BASE = `${API_BASE_URL.replace(/\/$/, '')}/assignments/`;
 
 // Sent as multipart so an attachment can ride along; an empty subject means
 // "no subject", which the API takes as null.
-const toFormData = (input: Partial<AssignmentInput>): FormData => {
+const toFormData = (input: Partial<AssignmentInput> | SubmissionInput): FormData => {
   const form = new FormData();
   Object.entries(input).forEach(([key, value]) => {
     if (value === undefined) return;
@@ -62,7 +94,11 @@ const toFormData = (input: Partial<AssignmentInput>): FormData => {
   return form;
 };
 
-const send = async (method: 'POST' | 'PATCH', url: string, input: Partial<AssignmentInput>) => {
+const send = async <T = Assignment>(
+  method: 'POST' | 'PATCH',
+  url: string,
+  input: Partial<AssignmentInput> | SubmissionInput,
+): Promise<T> => {
   const response = await fetch(url, {
     method,
     body: toFormData(input),
@@ -70,7 +106,7 @@ const send = async (method: 'POST' | 'PATCH', url: string, input: Partial<Assign
     headers: await buildUploadHeaders(method),
   });
   if (!response.ok) await handleResponseError(response, url, method);
-  return response.json() as Promise<Assignment>;
+  return response.json() as Promise<T>;
 };
 
 const AssignmentService = {
@@ -88,6 +124,17 @@ const AssignmentService = {
   update: (id: number, input: Partial<AssignmentInput>) => send('PATCH', `${BASE}${id}/`, input),
 
   remove: (id: number) => api.delete(`/api/assignments/${id}/`),
+
+  /** A student hands in work, or replaces it until it is marked. */
+  submit: (id: number, input: SubmissionInput) => send<Submission>('POST', `${BASE}${id}/submit/`, input),
+
+  /** The class list for one assignment, each pupil with their hand-in. */
+  submissions: (id: number): Promise<ClassSubmissions> =>
+    api.get(`/api/assignments/${id}/submissions/`),
+
+  /** Blank grade and feedback hand the work back to the student. */
+  grade: (id: number, submission: number, grade: string, feedback: string): Promise<Submission> =>
+    api.post(`/api/assignments/${id}/grade/`, { submission, grade, feedback }),
 };
 
 /** Today in the school's timezone, as the API compares due dates. */

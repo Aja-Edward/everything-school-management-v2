@@ -31,7 +31,7 @@ from subject.models import Subject
 from teacher.models import Teacher
 from tenants.models import Tenant
 
-from .models import Assignment
+from .models import Assignment, AssignmentSubmission
 
 User = get_user_model()
 URL = "/api/assignments/"
@@ -486,3 +486,252 @@ class AssignmentAttachmentTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
         self.assertIn("attachment", response.data)
         upload.assert_not_called()
+
+
+class SubmissionTest(APITestCase):
+    """
+    Students hand in work for their own class's assignments and may replace
+    it until it is marked. The assignment's teacher or the class teacher
+    marks it; parents and admins read it. Nobody reaches another pupil's or
+    another school's.
+    """
+
+    def setUp(self):
+        self.school = School("submit-school")
+        self.other = School("submit-other")
+        s = self.school
+        self.fractions = s.assignment(s.jss1, s.maths_teacher, s.maths, title="Fractions")
+        self.jss2_work = s.assignment(s.jss2, s.jss2_teacher, s.maths, title="Algebra")
+        self.classmate = s.student("chidi")
+        s.enrol(self.classmate, s.jss1)
+
+    def as_user(self, user, school=None):
+        self.client.force_authenticate(user=user)
+        self.slug = (school or self.school).slug
+
+    def submit(self, assignment, data, format="json"):
+        return self.client.post(f"{URL}{assignment.id}/submit/", data, format=format,
+                                HTTP_X_TENANT_SLUG=self.slug)
+
+    def roster(self, assignment):
+        return self.client.get(f"{URL}{assignment.id}/submissions/", HTTP_X_TENANT_SLUG=self.slug)
+
+    def grade(self, assignment, submission_id, grade="8/10", feedback="Good work"):
+        return self.client.post(f"{URL}{assignment.id}/grade/",
+                                {"submission": submission_id, "grade": grade, "feedback": feedback},
+                                format="json", HTTP_X_TENANT_SLUG=self.slug)
+
+    def get(self, path=""):
+        return self.client.get(URL + path, HTTP_X_TENANT_SLUG=self.slug)
+
+    def handed_in(self, student, text="My answers", assignment=None):
+        return AssignmentSubmission.objects.create(
+            tenant=self.school.tenant, assignment=assignment or self.fractions,
+            student=student, text=text)
+
+    # ── students ──
+
+    def test_student_hands_in_and_sees_it_on_the_assignment(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+
+        response = self.submit(self.fractions, {"text": "1/2 + 1/4 = 3/4"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertFalse(response.data["is_late"])
+        row = next(r for r in self.get().data if r["id"] == self.fractions.id)
+        self.assertEqual(row["submission"]["text"], "1/2 + 1/4 = 3/4")
+        self.assertIsNone(row["submission_count"])  # class totals are for staff
+
+    def test_student_may_replace_work_until_it_is_marked(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+        first = self.submit(self.fractions, {"text": "draft"})
+
+        second = self.submit(self.fractions, {"text": "final"})
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.data)
+        self.assertEqual(second.data["id"], first.data["id"])
+        self.assertEqual(AssignmentSubmission.objects.get().text, "final")
+
+        AssignmentSubmission.objects.update(grade="7/10", graded_at=timezone.now())
+        locked = self.submit(self.fractions, {"text": "after marking"})
+        self.assertEqual(locked.status_code, status.HTTP_400_BAD_REQUEST, locked.data)
+        self.assertEqual(AssignmentSubmission.objects.get().text, "final")
+
+    def test_empty_hand_in_is_refused(self):
+        self.as_user(self.school.jss1_child.user)
+
+        response = self.submit(self.fractions, {"text": "   "})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertFalse(AssignmentSubmission.objects.exists())
+
+    def test_late_work_is_accepted_and_flagged(self):
+        s = self.school
+        overdue = s.assignment(s.jss1, s.maths_teacher, s.maths, due_in_days=-1, title="Late")
+        self.as_user(s.jss1_child.user)
+
+        response = self.submit(overdue, {"text": "Sorry it's late"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(response.data["is_late"])
+
+    def test_student_cannot_hand_in_for_another_class_or_school(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+
+        self.assertEqual(self.submit(self.jss2_work, {"text": "x"}).status_code, status.HTTP_404_NOT_FOUND)
+        other = self.other.assignment(self.other.jss1, self.other.maths_teacher, self.other.maths)
+        self.assertEqual(self.submit(other, {"text": "x"}).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(AssignmentSubmission.objects.exists())
+
+    def test_only_students_hand_in(self):
+        s = self.school
+        for user in (s.jss1_parent.user, s.maths_teacher.user, s.admin):
+            self.as_user(user)
+            self.assertEqual(self.submit(self.fractions, {"text": "x"}).status_code,
+                             status.HTTP_403_FORBIDDEN, user.username)
+        self.assertFalse(AssignmentSubmission.objects.exists())
+
+    @patch("assignment.storage.upload_attachment")
+    def test_student_attaches_a_file(self, upload):
+        upload.return_value = ("https://res.cloudinary.com/x/raw/upload/s.pdf", "assignments/1/submissions/s.pdf")
+        self.as_user(self.school.jss1_child.user)
+
+        response = self.submit(self.fractions, {
+            "attachment": SimpleUploadedFile("my work.pdf", b"%PDF-1.4", content_type="application/pdf"),
+        }, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["attachment_name"], "my work.pdf")
+        self.assertEqual(upload.call_args.kwargs["folder"], "submissions")
+
+    # ── teachers ──
+
+    def test_teacher_sees_the_whole_class_with_who_has_handed_in(self):
+        s = self.school
+        self.handed_in(s.jss1_child)
+        self.as_user(s.maths_teacher.user)
+
+        response = self.roster(self.fractions)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertTrue(response.data["can_grade"])
+        by_id = {row["student_id"]: row["submission"] for row in response.data["students"]}
+        self.assertEqual(set(by_id), {s.jss1_child.id, self.classmate.id})
+        self.assertEqual(by_id[s.jss1_child.id]["text"], "My answers")
+        self.assertIsNone(by_id[self.classmate.id])
+
+        row = next(r for r in self.get().data if r["id"] == self.fractions.id)
+        self.assertEqual((row["submission_count"], row["student_count"]), (1, 2))
+
+    def test_author_and_class_teacher_mark_but_other_subject_teachers_only_read(self):
+        s = self.school
+        work = self.handed_in(s.jss1_child)
+
+        self.as_user(s.english_teacher.user)
+        self.assertFalse(self.roster(self.fractions).data["can_grade"])
+        self.assertEqual(self.grade(self.fractions, work.id).status_code, status.HTTP_403_FORBIDDEN)
+
+        self.as_user(s.form_teacher.user)
+        self.assertEqual(self.grade(self.fractions, work.id, "B").status_code, status.HTTP_200_OK)
+
+        self.as_user(s.maths_teacher.user)
+        response = self.grade(self.fractions, work.id, "8/10", "Check question 3")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        work.refresh_from_db()
+        self.assertEqual((work.grade, work.feedback, work.graded_by), ("8/10", "Check question 3", s.maths_teacher))
+
+    def test_clearing_the_mark_hands_work_back(self):
+        s = self.school
+        work = self.handed_in(s.jss1_child)
+        self.as_user(s.maths_teacher.user)
+        self.grade(self.fractions, work.id)
+
+        response = self.grade(self.fractions, work.id, "", "")
+
+        self.assertFalse(response.data["is_graded"])
+        self.as_user(s.jss1_child.user)
+        self.assertEqual(self.submit(self.fractions, {"text": "redone"}).status_code, status.HTTP_200_OK)
+
+    def test_teacher_cannot_mark_a_hand_in_from_another_assignment(self):
+        s = self.school
+        other_work = self.handed_in(s.jss2_child, assignment=self.jss2_work)
+        self.as_user(s.maths_teacher.user)
+
+        response = self.grade(self.fractions, other_work.id)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        other_work.refresh_from_db()
+        self.assertFalse(other_work.is_graded)
+
+    def test_teacher_of_another_class_cannot_read_hand_ins(self):
+        self.as_user(self.school.jss2_teacher.user)
+        self.assertEqual(self.roster(self.fractions).status_code, status.HTTP_404_NOT_FOUND)
+
+    # ── parents, admins ──
+
+    def test_parent_sees_each_childs_own_hand_in(self):
+        s = self.school
+        self.handed_in(s.jss1_child, text="Ada's work")
+        self.handed_in(self.classmate, text="Chidi's work")
+        self.as_user(s.jss1_parent.user)
+
+        groups = self.get("children/").data
+        row = next(a for a in groups[0]["assignments"] if a["id"] == self.fractions.id)
+        self.assertEqual(row["submission"]["text"], "Ada's work")
+
+        mine = self.get(f"?student={s.jss1_child.id}").data
+        self.assertEqual(mine[0]["submission"]["text"], "Ada's work")
+
+    def test_parent_cannot_read_a_classmates_hand_in(self):
+        s = self.school
+        self.handed_in(self.classmate, text="Chidi's work")
+        self.as_user(s.jss1_parent.user)
+
+        rows = self.get(f"?student={self.classmate.id}").data
+        self.assertTrue(rows)  # the same class's assignments...
+        self.assertTrue(all(r["submission"] is None for r in rows))  # ...but not Chidi's work
+        self.assertEqual(self.roster(self.fractions).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_student_cannot_read_a_classmates_hand_in(self):
+        s = self.school
+        self.handed_in(self.classmate, text="Chidi's work")
+        self.as_user(s.jss1_child.user)
+
+        rows = self.get(f"?student={self.classmate.id}").data
+        self.assertTrue(all(r["submission"] is None for r in rows))
+        self.assertEqual(self.roster(self.fractions).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_reads_hand_ins_but_does_not_mark(self):
+        s = self.school
+        work = self.handed_in(s.jss1_child)
+        self.as_user(s.admin)
+
+        self.assertEqual(self.roster(self.fractions).status_code, status.HTTP_200_OK)
+        self.assertFalse(self.roster(self.fractions).data["can_grade"])
+        self.assertEqual(self.get(f"?student={s.jss1_child.id}").data[0]["submission"]["id"], work.id)
+        self.assertEqual(self.grade(self.fractions, work.id).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_another_schools_admin_reaches_none_of_it(self):
+        s = self.school
+        self.handed_in(s.jss1_child)
+        self.as_user(self.other.admin, self.other)
+
+        self.assertEqual(self.roster(self.fractions).status_code, status.HTTP_404_NOT_FOUND)
+        rows = self.get(f"?student={s.jss1_child.id}").data
+        self.assertEqual(rows, [])
+
+    @patch("assignment.storage.delete_attachment")
+    def test_deleting_an_assignment_removes_hand_in_files(self, delete):
+        s = self.school
+        work = self.handed_in(s.jss1_child)
+        work.attachment_public_id = "assignments/1/submissions/s.pdf"
+        work.save()
+        self.as_user(s.maths_teacher.user)
+
+        self.client.delete(f"{URL}{self.fractions.id}/", HTTP_X_TENANT_SLUG=self.slug)
+
+        delete.assert_any_call("assignments/1/submissions/s.pdf")
+        self.assertFalse(AssignmentSubmission.objects.exists())

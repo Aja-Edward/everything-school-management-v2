@@ -18,7 +18,7 @@ ALLOWED_EXTENSIONS = {
 }
 
 
-def upload_attachment(file_obj, tenant):
+def upload_attachment(file_obj, tenant, folder=""):
     """Upload `file_obj` and return (secure_url, public_id)."""
     import cloudinary.uploader
 
@@ -27,7 +27,7 @@ def upload_attachment(file_obj, tenant):
     result = cloudinary.uploader.upload(
         file_obj,
         resource_type="raw",
-        folder=f"assignments/{tenant.id}",
+        folder=f"assignments/{tenant.id}" + (f"/{folder}" if folder else ""),
         # Raw files keep their extension only if it is part of the id.
         public_id=f"{uuid.uuid4().hex}{ext}",
     )

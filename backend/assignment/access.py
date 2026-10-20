@@ -80,3 +80,22 @@ def children_of(user, tenant):
         .select_related("user")
         .order_by("user__first_name", "user__last_name", "id")
     )
+
+
+def can_grade(teacher, assignment):
+    """The teacher who set it, or whoever leads the class (e.g. once its author has left)."""
+    return assignment.teacher_id == teacher.pk or leads_classroom(teacher, assignment.classroom)
+
+
+def class_roster(classroom):
+    """Active students actively enrolled in `classroom`, by name."""
+    from students.models import Student
+
+    enrolled = StudentEnrollment.objects.filter(
+        classroom=classroom, is_active=True
+    ).values("student_id")
+    return (
+        Student.objects.filter(tenant=classroom.tenant_id, is_active=True, id__in=enrolled)
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name", "id")
+    )

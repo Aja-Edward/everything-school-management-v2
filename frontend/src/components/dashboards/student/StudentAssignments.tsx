@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ChildAssignments from '@/components/assignments/ChildAssignments';
-import AssignmentService, { Assignment } from '@/services/AssignmentService';
+import { SubmitWork } from '@/components/assignments/SubmissionPanel';
+import AssignmentService, { Assignment, Submission } from '@/services/AssignmentService';
 
 /** The student's own class's assignments; the API already limits the list to it. */
 const StudentAssignments: React.FC = () => {
@@ -26,6 +27,9 @@ const StudentAssignments: React.FC = () => {
     );
   }
 
+  const handedIn = (submission: Submission) =>
+    setAssignments((prev) => prev.map((a) => (a.id === submission.assignment ? { ...a, submission } : a)));
+
   const classNames = Array.from(new Set(assignments.map((a) => a.classroom_name)));
 
   return (
@@ -36,6 +40,7 @@ const StudentAssignments: React.FC = () => {
       assignments={assignments}
       loading={loading}
       notEnrolledMessage=""
+      renderFooter={(a) => <SubmitWork assignment={a} onSaved={handedIn} />}
     />
   );
 };

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Loader2, Plus, X } from 'lucide-react';
+import { ClipboardList, Inbox, Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import TeacherDashboardLayout from '@/components/layouts/TeacherDashboardLayout';
 import AssignmentCard from '@/components/assignments/AssignmentCard';
+import SubmissionsModal from '@/components/assignments/SubmissionsModal';
 import AssignmentService, {
   Assignment,
   AssignmentInput,
@@ -248,6 +249,7 @@ const TeacherAssignmentsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | null>(null);
+  const [viewingHandIns, setViewingHandIns] = useState<Assignment | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -335,7 +337,16 @@ const TeacherAssignmentsPage: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {shown.map((a) => (
-              <AssignmentCard key={a.id} assignment={a} onEdit={openEdit} onDelete={remove} />
+              <AssignmentCard key={a.id} assignment={a} onEdit={openEdit} onDelete={remove}>
+                <button
+                  type="button"
+                  onClick={() => setViewingHandIns(a)}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  <Inbox className="w-4 h-4" />
+                  Hand-ins: {a.submission_count ?? 0} of {a.student_count ?? 0}
+                </button>
+              </AssignmentCard>
             ))}
           </div>
         )}
@@ -349,6 +360,10 @@ const TeacherAssignmentsPage: React.FC = () => {
           onClose={() => setFormOpen(false)}
           onSaved={() => { setFormOpen(false); load(); }}
         />
+      )}
+
+      {viewingHandIns && (
+        <SubmissionsModal assignment={viewingHandIns} onClose={() => setViewingHandIns(null)} />
       )}
     </TeacherDashboardLayout>
   );
