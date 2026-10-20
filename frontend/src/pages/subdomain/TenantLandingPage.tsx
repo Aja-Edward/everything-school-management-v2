@@ -7,7 +7,7 @@ import TenantNavbar from '@/components/tenant/TenantNavbar';
 import HeroSection from '@/components/tenant/HeroSection';
 import TenantFooter from '@/components/tenant/TenantFooter';
 import LazyImage from '@/components/tenant/LazyImage';
-import api from '@/services/api';
+import { fetchLiveEvents, eventImage, type SchoolEvent } from '@/utils/schoolEvents';
 import {
   BookOpen, Users, Award, MapPin, Phone, Mail, Calendar,
   ChevronRight, GraduationCap, Star, ArrowRight,
@@ -23,14 +23,7 @@ const PageLoader = () => (
 );
 
 interface CarouselImage { id: number; image: string; title?: string; description?: string; }
-interface EventItem {
-  id: number; title: string; subtitle?: string; description?: string;
-  display_type: 'banner' | 'carousel' | 'ribbon';
-  event_type: string; background_theme: string;
-  ribbon_text?: string; ribbon_speed?: 'slow' | 'medium' | 'fast';
-  is_active: boolean; is_published: boolean;
-  image?: string; cta_text?: string; cta_url?: string;
-}
+type EventItem = SchoolEvent;
 
 const TenantLandingPage: React.FC = () => {
   const { tenant, settings, isLoading: tenantLoading } = useTenant();
@@ -53,33 +46,40 @@ const TenantLandingPage: React.FC = () => {
       const raw = localStorage.getItem(cacheKey);
       if (raw) {
         const { data, ts } = JSON.parse(raw);
-        if (Date.now() - ts < CACHE_TTL) {
+        if (Date.now() - ts < CACHE_TTL && data?.landing) {
           setLanding(data.landing);
-          setActiveEvents(data.events);
+          setActiveEvents(data.events ?? []);
           setLoading(false);
         }
       }
     } catch {}
 
-    // Always fetch fresh in background (or foreground if no cache)
-    Promise.all([
-      LandingPageService.getPublic().catch(() => null),
-      api.get('/events/events/?is_active=true&is_published=true').catch(() => ({ results: [] })),
-    ]).then(([landingData, eventsData]) => {
+    // Merge into the cached copy, since the page and its events arrive apart.
+    const saveCache = (patch: { landing?: LandingData; events?: EventItem[] }) => {
+      try {
+        const prev = JSON.parse(localStorage.getItem(cacheKey) || 'null')?.data ?? {};
+        localStorage.setItem(cacheKey, JSON.stringify({ data: { ...prev, ...patch }, ts: Date.now() }));
+      } catch {}
+    };
+
+    // Always fetch fresh in background (or foreground if no cache). The page
+    // shows as soon as its own content arrives; events are fetched on their
+    // own and slot in when ready, so a slow events call never holds it up.
+    LandingPageService.getPublic().catch(() => null).then(landingData => {
       if (!landingData) {
         if (!landing) { setError('not_published'); }
         setLoading(false);
         return;
       }
-      const evts: EventItem[] = (eventsData?.results ?? eventsData ?? [])
-        .filter((e: EventItem) => e.is_active && e.is_published);
       setLanding(landingData);
-      setActiveEvents(evts);
       setLoading(false);
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ data: { landing: landingData, events: evts }, ts: Date.now() }));
-      } catch {}
+      saveCache({ landing: landingData });
     }).catch(() => { if (!landing) setError('error'); setLoading(false); });
+
+    fetchLiveEvents().then(evts => {
+      setActiveEvents(evts);
+      saveCache({ events: evts });
+    }).catch(() => {});
   }, [tenantLoading, tenant]);
 
   /* ── Derived event slots ── */
@@ -95,7 +95,7 @@ const TenantLandingPage: React.FC = () => {
 
   // Carousel: event carousel slides take priority, fall back to landing carousel_images
   const effectiveCarousel: CarouselImage[] = carouselEvents.length > 0
-    ? carouselEvents.map(e => ({ id: e.id, image: e.image || '', title: e.title, description: e.subtitle }))
+    ? carouselEvents.map(e => ({ id: e.id, image: eventImage(e) || '', title: e.title, description: e.subtitle }))
     : (landing?.carousel_images ?? []).map(s => ({ id: s.id, image: s.image, title: s.title, description: s.caption }));
 
   if (tenantLoading || loading) return <PageLoader />;
@@ -164,7 +164,7 @@ const TenantLandingPage: React.FC = () => {
         schoolLogo={settings?.logo}
         carouselImages={effectiveCarousel}
         activeBannerEvent={bannerEvent
-          ? { title: bannerEvent.title, subtitle: bannerEvent.subtitle, image: bannerEvent.image, cta_text: bannerEvent.cta_text, cta_url: bannerEvent.cta_url }
+          ? { title: bannerEvent.title, subtitle: bannerEvent.subtitle, image: eventImage(bannerEvent), cta_text: bannerEvent.cta_text, cta_url: bannerEvent.cta_url }
           : null}
       />
 

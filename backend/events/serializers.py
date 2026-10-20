@@ -31,7 +31,7 @@ class EventSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'title', 'subtitle', 'description', 'badge_text',
-            'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
+            'cta_text', 'cta_url', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'start_date', 'end_date', 'is_active', 'is_published',
             'ribbon_text', 'ribbon_speed', 'carousel_interval', 'carousel_speed',
             'show_indicators', 'show_controls', 'auto_play', 'images', 'image_count',
@@ -75,7 +75,7 @@ class EventCreateSerializer(_RespondWithFullEvent, serializers.ModelSerializer):
         model = Event
         fields = [
             'title', 'subtitle', 'description', 'badge_text',
-            'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
+            'cta_text', 'cta_url', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'start_date', 'end_date', 'ribbon_text', 'ribbon_speed',
             'carousel_interval', 'carousel_speed', 'show_indicators', 'show_controls',
             'auto_play', 'is_active', 'is_published', 'images'
@@ -109,7 +109,7 @@ class EventUpdateSerializer(_RespondWithFullEvent, serializers.ModelSerializer):
         model = Event
         fields = [
             'title', 'subtitle', 'description', 'badge_text',
-            'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
+            'cta_text', 'cta_url', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'start_date', 'end_date', 'ribbon_text', 'ribbon_speed',
             'carousel_interval', 'carousel_speed', 'show_indicators', 'show_controls',
             'auto_play', 'is_active', 'is_published', 'images'
@@ -161,7 +161,7 @@ class ActiveEventSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'title', 'subtitle', 'description', 'badge_text',
-            'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
+            'cta_text', 'cta_url', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'ribbon_text', 'ribbon_speed', 'carousel_interval',
             'carousel_speed', 'show_indicators', 'show_controls', 'auto_play',
             'images', 'is_current'

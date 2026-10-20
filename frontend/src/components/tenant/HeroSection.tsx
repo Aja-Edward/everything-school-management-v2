@@ -57,8 +57,12 @@ const HeroSection: React.FC<HeroSectionProps> = ({
   /* ── Texts resolution: banner overrides landing config ── */
   const heroTitle = activeBannerEvent?.title ?? landing.hero_title ?? schoolName ?? 'Welcome';
   const heroSubtitle = activeBannerEvent?.subtitle ?? landing.hero_subtitle ?? schoolMotto;
-  const ctaText = activeBannerEvent?.cta_text ?? landing.hero_cta_text;
-  const ctaUrl = activeBannerEvent?.cta_url ?? landing.hero_cta_url;
+  // A banner's button needs both a label and a link. cta_text defaults to
+  // "Begin Your Journey" on every event, so a banner with no link used to
+  // show a button that went nowhere; keep the school's own button instead.
+  const bannerHasCta = !!(activeBannerEvent?.cta_text && activeBannerEvent?.cta_url);
+  const ctaText = bannerHasCta ? activeBannerEvent!.cta_text : landing.hero_cta_text;
+  const ctaUrl = bannerHasCta ? activeBannerEvent!.cta_url : landing.hero_cta_url;
   const secondaryCtaText = !activeBannerEvent ? landing.hero_secondary_cta_text : undefined;
   const secondaryCtaUrl = !activeBannerEvent ? landing.hero_secondary_cta_url : undefined;
 
@@ -103,13 +107,25 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           )}
 
           <div className="flex flex-wrap gap-4">
-            <Link
-              to={ctaUrl}
-              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-white shadow-xl transition-all duration-200 hover:opacity-90 hover:scale-105 active:scale-95"
-              style={{ backgroundColor: primaryColor }}
-            >
-              {ctaText}
-            </Link>
+            {ctaText && ctaUrl && (/^https?:\/\//i.test(ctaUrl) ? (
+              <a
+                href={ctaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-white shadow-xl transition-all duration-200 hover:opacity-90 hover:scale-105 active:scale-95"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {ctaText}
+              </a>
+            ) : (
+              <Link
+                to={ctaUrl}
+                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-semibold text-white shadow-xl transition-all duration-200 hover:opacity-90 hover:scale-105 active:scale-95"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {ctaText}
+              </Link>
+            ))}
             {secondaryCtaText && secondaryCtaUrl && (
               <Link
                 to={secondaryCtaUrl}

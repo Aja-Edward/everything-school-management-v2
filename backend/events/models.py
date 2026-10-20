@@ -35,6 +35,9 @@ class Event(TenantMixin, models.Model):
     
     # CTA buttons
     cta_text = models.CharField(max_length=100, default='Begin Your Journey')
+    # A path on the school's site (/admissions) or a full URL. A CharField, not
+    # a URLField, so relative paths are accepted.
+    cta_url = models.CharField(max_length=500, blank=True)
     secondary_cta_text = models.CharField(max_length=100, default='Watch Experience')
     
     # Event type and theme
