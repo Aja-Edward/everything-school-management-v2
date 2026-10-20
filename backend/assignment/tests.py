@@ -586,13 +586,106 @@ class SubmissionTest(APITestCase):
         self.assertEqual(self.submit(other, {"text": "x"}).status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(AssignmentSubmission.objects.exists())
 
-    def test_only_students_hand_in(self):
+    def test_teachers_and_admins_do_not_hand_in(self):
         s = self.school
-        for user in (s.jss1_parent.user, s.maths_teacher.user, s.admin):
+        for user in (s.maths_teacher.user, s.admin):
             self.as_user(user)
-            self.assertEqual(self.submit(self.fractions, {"text": "x"}).status_code,
-                             status.HTTP_403_FORBIDDEN, user.username)
+            response = self.submit(self.fractions, {"text": "x", "student": s.jss1_child.id})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, user.username)
         self.assertFalse(AssignmentSubmission.objects.exists())
+
+    def test_student_hand_in_is_recorded_as_theirs(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+
+        response = self.submit(self.fractions, {"text": "mine"})
+
+        self.assertFalse(response.data["handed_in_by_parent"])
+        self.assertEqual(AssignmentSubmission.objects.get().submitted_by, s.jss1_child.user)
+
+    # ── parents handing in for a child ──
+
+    def test_parent_hands_in_for_their_child(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+
+        response = self.submit(self.fractions, {"text": "Ada's answers", "student": s.jss1_child.id})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        work = AssignmentSubmission.objects.get()
+        self.assertEqual((work.student, work.submitted_by), (s.jss1_child, s.jss1_parent.user))
+        self.assertTrue(response.data["handed_in_by_parent"])
+        self.assertEqual(response.data["submitted_by_name"], "Ada_Mum Test")
+
+        groups = self.get("children/").data
+        row = next(a for a in groups[0]["assignments"] if a["id"] == self.fractions.id)
+        self.assertEqual(row["submission"]["text"], "Ada's answers")
+
+    def test_parent_and_child_share_one_hand_in(self):
+        s = self.school
+        self.as_user(s.jss1_child.user)
+        self.submit(self.fractions, {"text": "started by Ada"})
+
+        self.as_user(s.jss1_parent.user)
+        response = self.submit(self.fractions, {"text": "finished with Mum", "student": s.jss1_child.id})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(AssignmentSubmission.objects.get().text, "finished with Mum")
+
+    def test_parent_must_name_the_child(self):
+        self.as_user(self.school.jss1_parent.user)
+
+        response = self.submit(self.fractions, {"text": "x"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("student", response.data)
+        self.assertFalse(AssignmentSubmission.objects.exists())
+
+    def test_parent_cannot_hand_in_for_someone_elses_child(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+
+        # A classmate in the same class, and another school's pupil.
+        for student_id in (self.classmate.id, self.other.jss1_child.id):
+            response = self.submit(self.fractions, {"text": "x", "student": student_id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertFalse(AssignmentSubmission.objects.exists())
+
+    def test_parent_cannot_hand_in_a_child_for_another_class(self):
+        s = self.school
+        # One parent, two children in different classes.
+        ParentStudentRelationship.objects.create(
+            tenant=s.tenant, parent=s.jss1_parent, student=s.jss2_child, relationship="Mother")
+        self.as_user(s.jss1_parent.user)
+
+        wrong = self.submit(self.fractions, {"text": "x", "student": s.jss2_child.id})
+        right = self.submit(self.jss2_work, {"text": "Bayo's algebra", "student": s.jss2_child.id})
+
+        self.assertEqual(wrong.status_code, status.HTTP_400_BAD_REQUEST, wrong.data)
+        self.assertEqual(right.status_code, status.HTTP_201_CREATED, right.data)
+        self.assertEqual(AssignmentSubmission.objects.get().student, s.jss2_child)
+
+    def test_parent_cannot_change_marked_work(self):
+        s = self.school
+        self.handed_in(s.jss1_child)
+        AssignmentSubmission.objects.update(grade="9/10", graded_at=timezone.now())
+        self.as_user(s.jss1_parent.user)
+
+        response = self.submit(self.fractions, {"text": "changed", "student": s.jss1_child.id})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(AssignmentSubmission.objects.get().text, "My answers")
+
+    def test_teacher_sees_a_parent_handed_it_in(self):
+        s = self.school
+        self.as_user(s.jss1_parent.user)
+        self.submit(self.fractions, {"text": "x", "student": s.jss1_child.id})
+
+        self.as_user(s.maths_teacher.user)
+        rows = self.roster(self.fractions).data["students"]
+
+        work = next(r["submission"] for r in rows if r["student_id"] == s.jss1_child.id)
+        self.assertTrue(work["handed_in_by_parent"])
 
     @patch("assignment.storage.upload_attachment")
     def test_student_attaches_a_file(self, upload):

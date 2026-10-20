@@ -19,8 +19,8 @@ import {
 import api from '@/services/api';
 import FamilyFees from './FamilyFees';
 import ChildAssignments from '@/components/assignments/ChildAssignments';
-import { SubmissionStatus } from '@/components/assignments/SubmissionPanel';
-import AssignmentService, { ChildAssignments as ChildAssignmentGroup } from '@/services/AssignmentService';
+import { SubmitWork } from '@/components/assignments/SubmissionPanel';
+import AssignmentService, { ChildAssignments as ChildAssignmentGroup, Submission } from '@/services/AssignmentService';
 import { toast } from 'react-toastify';
 
 interface StudentData {
@@ -43,6 +43,9 @@ interface StudentData {
 interface DashboardResponse {
   dashboard: StudentData[];
 }
+
+/** "Ada Okafor" -> "Ada", for buttons like "Hand in for Ada". */
+const firstName = (fullName: string) => fullName.trim().split(/\s+/)[0] || fullName;
 
 const ParentDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -143,6 +146,15 @@ const ParentDashboard = () => {
   }
 
   const currentStudent = dashboardData.find(s => s.student_id === selectedStudent) || dashboardData[0];
+
+  // A hand-in belongs to one child, so update only that child's copy of the row.
+  const handedIn = (submission: Submission) =>
+    setAssignmentGroups(groups => groups.map(g => (
+      g.student_id !== submission.student ? g : {
+        ...g,
+        assignments: g.assignments.map(a => (a.id === submission.assignment ? { ...a, submission } : a)),
+      }
+    )));
   // Paystack sends a parent back to ?tab=fees&reference=… after paying.
   const openOnFees = new URLSearchParams(window.location.search).get('tab') === 'fees';
   const childAssignments = assignmentGroups.find(g => g.student_id === currentStudent.student_id);
@@ -269,7 +281,13 @@ const ParentDashboard = () => {
               assignments={childAssignments?.assignments || []}
               loading={assignmentsLoading}
               notEnrolledMessage="Your child isn't enrolled in a class yet, so there are no assignments to show. Please contact the school."
-              renderFooter={(a) => <SubmissionStatus assignment={a} />}
+              renderFooter={(a) => (
+                <SubmitWork
+                  assignment={a}
+                  child={{ id: currentStudent.student_id, name: firstName(currentStudent.student) }}
+                  onSaved={handedIn}
+                />
+              )}
             />
           </TabsContent>
 

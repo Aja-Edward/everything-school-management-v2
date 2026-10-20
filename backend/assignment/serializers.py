@@ -76,9 +76,9 @@ class AttachmentMixin:
 
 class SubmissionSerializer(AttachmentMixin, serializers.ModelSerializer):
     """
-    A student's hand-in. The student writes `text` and the attachment; the
-    grade and feedback are the teacher's and read-only here (GradeSerializer
-    writes them).
+    A student's hand-in. The student, or a parent for them, writes `text`
+    and the attachment; the grade and feedback are the teacher's and
+    read-only here (GradeSerializer writes them).
     """
 
     upload_folder = "submissions"
@@ -87,6 +87,9 @@ class SubmissionSerializer(AttachmentMixin, serializers.ModelSerializer):
     is_late = serializers.BooleanField(read_only=True)
     is_graded = serializers.BooleanField(read_only=True)
     graded_by_name = serializers.SerializerMethodField()
+    # Set when a parent, not the student, last saved it.
+    handed_in_by_parent = serializers.SerializerMethodField()
+    submitted_by_name = serializers.SerializerMethodField()
 
     attachment = serializers.FileField(write_only=True, required=False)
     remove_attachment = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -96,7 +99,7 @@ class SubmissionSerializer(AttachmentMixin, serializers.ModelSerializer):
         fields = [
             "id", "assignment", "student", "student_name",
             "text", "attachment", "remove_attachment", "attachment_url", "attachment_name",
-            "submitted_at", "is_late",
+            "submitted_at", "is_late", "handed_in_by_parent", "submitted_by_name",
             "grade", "feedback", "is_graded", "graded_by_name", "graded_at",
         ]
         read_only_fields = [
@@ -107,6 +110,14 @@ class SubmissionSerializer(AttachmentMixin, serializers.ModelSerializer):
     def get_student_name(self, obj):
         user = obj.student.user
         return user.get_full_name() or user.username
+
+    def get_handed_in_by_parent(self, obj):
+        return obj.submitted_by_id is not None and obj.submitted_by_id != obj.student.user_id
+
+    def get_submitted_by_name(self, obj):
+        if obj.submitted_by_id is None:
+            return None
+        return obj.submitted_by.get_full_name() or obj.submitted_by.username
 
     def get_graded_by_name(self, obj):
         if obj.graded_by_id and obj.graded_by.user_id:

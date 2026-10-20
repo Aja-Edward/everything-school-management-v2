@@ -34,6 +34,8 @@ export interface Submission {
   attachment_name: string;
   submitted_at: string;
   is_late: boolean;
+  handed_in_by_parent: boolean; // a parent, not the student, last saved it
+  submitted_by_name: string | null;
   grade: string;
   feedback: string;
   is_graded: boolean; // once marked, the student can no longer change it
@@ -42,6 +44,8 @@ export interface Submission {
 }
 
 export interface SubmissionInput {
+  /** The child a parent is handing in for; students leave it out. */
+  student?: number;
   text?: string;
   attachment?: File | null;
   remove_attachment?: boolean;
@@ -125,7 +129,7 @@ const AssignmentService = {
 
   remove: (id: number) => api.delete(`/api/assignments/${id}/`),
 
-  /** A student hands in work, or replaces it until it is marked. */
+  /** A student, or a parent naming the child, hands in work or replaces it until it is marked. */
   submit: (id: number, input: SubmissionInput) => send<Submission>('POST', `${BASE}${id}/submit/`, input),
 
   /** The class list for one assignment, each pupil with their hand-in. */

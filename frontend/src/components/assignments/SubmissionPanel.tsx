@@ -38,6 +38,7 @@ export const SubmissionDetails: React.FC<{ submission: Submission; showMark?: bo
   <div className="space-y-2">
     <p className="text-xs text-gray-500 dark:text-gray-400">
       Handed in {formatSubmittedAt(submission.submitted_at)}
+      {submission.handed_in_by_parent && submission.submitted_by_name ? ` by ${submission.submitted_by_name} (parent)` : ''}
     </p>
     {submission.text && (
       <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line break-words bg-gray-50 dark:bg-gray-900/40 rounded-md px-3 py-2">
@@ -77,10 +78,15 @@ export const SubmissionStatus: React.FC<{ assignment: Assignment }> = ({ assignm
 interface SubmitWorkProps {
   assignment: Assignment;
   onSaved: (submission: Submission) => void;
+  /** Set when a parent hands in for a child; a student leaves it out. */
+  child?: { id: number; name: string };
 }
 
-/** For students: hand the work in, or change it until the teacher marks it. */
-export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) => {
+/**
+ * Hand the work in, or change it until the teacher marks it: a student for
+ * themself, or a parent for a child who can't log in on their own.
+ */
+export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved, child }) => {
   const submission = assignment.submission;
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(submission?.text || '');
@@ -108,15 +114,20 @@ export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) =
       setSaving(true);
       setError(null);
       const saved = await AssignmentService.submit(assignment.id, {
+        student: child?.id,
         text,
         attachment: file,
         remove_attachment: removeFile && !file,
       });
       onSaved(saved);
       setOpen(false);
-      toast.success(submission ? 'Your hand-in was updated' : 'Handed in. Your teacher can now see it.');
+      toast.success(
+        submission
+          ? (child ? `${child.name}'s hand-in was updated` : 'Your hand-in was updated')
+          : (child ? `Handed in for ${child.name}. The teacher can now see it.` : 'Handed in. Your teacher can now see it.'),
+      );
     } catch (err) {
-      setError(describeError(err, 'Your work could not be handed in. Please try again.'));
+      setError(describeError(err, 'The work could not be handed in. Please try again.'));
     } finally {
       setSaving(false);
     }
@@ -137,14 +148,16 @@ export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) =
                   : 'inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700'
               }
             >
-              {submission ? 'Change my hand-in' : <><Send className="w-4 h-4" /> Hand in work</>}
+              {submission
+                ? (child ? 'Change hand-in' : 'Change my hand-in')
+                : <><Send className="w-4 h-4" /> {child ? `Hand in for ${child.name}` : 'Hand in work'}</>}
             </button>
           )}
         </div>
         {submission && <SubmissionDetails submission={submission} />}
         {!submission && assignment.is_overdue && (
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            This is past its due date. You can still hand it in; your teacher will see it was late.
+            This is past its due date. It can still be handed in; the teacher will see it was late.
           </p>
         )}
       </div>
@@ -156,19 +169,19 @@ export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) =
     <form onSubmit={save} className="space-y-3">
       <div>
         <label htmlFor={`${fieldId}-text`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Your answer
+          {child ? `${child.name}'s answer` : 'Your answer'}
         </label>
         <textarea
           id={`${fieldId}-text`}
           className="w-full min-h-[110px] rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Type your answer here, or attach your work below."
+          placeholder={child ? 'Type the answer here, or attach a photo of the work below.' : 'Type your answer here, or attach your work below.'}
         />
       </div>
       <div>
         <label htmlFor={`${fieldId}-file`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          {submission?.attachment_url ? 'Replace your file (optional)' : 'Attach a file (optional)'}
+          {submission?.attachment_url ? 'Replace the file (optional)' : 'Attach a file (optional)'}
         </label>
         <input
           id={`${fieldId}-file`}
@@ -178,13 +191,13 @@ export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) =
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          A photo of your work, or a PDF, Word, Excel or PowerPoint file, up to 10 MB.
+          A photo of the work, or a PDF, Word, Excel or PowerPoint file, up to 10 MB.
         </p>
       </div>
       {submission?.attachment_url && !file && (
         <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <input type="checkbox" checked={removeFile} onChange={(e) => setRemoveFile(e.target.checked)} />
-          Remove {submission.attachment_name || 'my file'}
+          Remove {submission.attachment_name || 'the file'}
         </label>
       )}
       {error && (
@@ -206,7 +219,7 @@ export const SubmitWork: React.FC<SubmitWorkProps> = ({ assignment, onSaved }) =
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          {submission ? 'Update hand-in' : 'Hand in'}
+          {submission ? 'Update hand-in' : child ? `Hand in for ${child.name}` : 'Hand in'}
         </button>
       </div>
     </form>

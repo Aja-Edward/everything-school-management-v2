@@ -37,8 +37,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     every class within their levels. Only the teacher who set an assignment
     edits it; they or an admin may delete it.
 
-    Students hand work in through `submit`; the class's teachers read the
-    hand-ins with `submissions` and mark them with `grade`.
+    Students, or parents for them, hand work in through `submit`; the
+    class's teachers read the hand-ins with `submissions` and mark them
+    with `grade`.
 
     Every query is scoped to request.tenant, whoever is asking.
     """
@@ -163,9 +164,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             return
         kind, _ = self.viewer()
         if self.action == "submit":
-            if kind == "student":
+            if kind in ("student", "parent"):
                 return
-            raise PermissionDenied("Only students hand in assignments.")
+            raise PermissionDenied("Only students, or their parents, hand in assignments.")
         if self.action == "grade":
             if kind == "teacher":
                 return
@@ -268,15 +269,16 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
-        """A student hands in their work, or replaces it until it is marked."""
-        assignment = self.get_object()  # their own class's, or a 404
-        student = Student.objects.filter(user=request.user, tenant=request.tenant, is_active=True).first()
-        if student is None:
-            raise PermissionDenied("Only students hand in assignments.")
+        """
+        A student hands in their work, or replaces it until it is marked. A
+        parent may do the same for a child, named by `student`.
+        """
+        assignment = self.get_object()  # their own (or a child's) class's, or a 404
+        student = self.hand_in_student(assignment)
         existing = AssignmentSubmission.objects.filter(assignment=assignment, student=student).first()
         if existing is not None and existing.is_graded:
             raise ValidationError(
-                {"detail": "Your teacher has already marked this work, so it can't be changed."}
+                {"detail": "The teacher has already marked this work, so it can't be changed."}
             )
 
         serializer = SubmissionSerializer(
@@ -288,7 +290,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 submission = serializer.save(
                     assignment=assignment, student=student, tenant=request.tenant,
-                    submitted_at=timezone.now(),
+                    submitted_at=timezone.now(), submitted_by=request.user,
                 )
         except IntegrityError:
             # Another tab handed in first.
@@ -297,6 +299,31 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             SubmissionSerializer(submission).data,
             status=status.HTTP_201_CREATED if existing is None else status.HTTP_200_OK,
         )
+
+    def hand_in_student(self, assignment):
+        """
+        The pupil a hand-in is for: the student themself, or the parent's
+        child named by `student`, who must be in the assignment's class.
+        """
+        kind, _ = self.viewer()
+        tenant = self.request.tenant
+        if kind == "student":
+            student = Student.objects.filter(user=self.request.user, tenant=tenant, is_active=True).first()
+            if student is None:
+                raise PermissionDenied("Only students, or their parents, hand in assignments.")
+            return student
+
+        child_id = str(self.request.data.get("student", ""))
+        if not child_id.isdigit():
+            raise ValidationError({"student": "Choose which child this work is for."})
+        child = children_of(self.request.user, tenant).filter(id=int(child_id)).first()
+        in_class = child is not None and enrolled_classroom_ids([child.id], tenant).filter(
+            classroom_id=assignment.classroom_id
+        ).exists()
+        if not in_class:
+            # Not their child, or a child in another class: the same answer either way.
+            raise ValidationError({"student": "This assignment isn't for that child's class."})
+        return child
 
     @action(detail=True, methods=["get"])
     def submissions(self, request, pk=None):
@@ -307,7 +334,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         assignment = self.get_object()
         handed_in = {
             s.student_id: s
-            for s in assignment.submissions.select_related("assignment", "student__user", "graded_by__user")
+            for s in assignment.submissions.select_related("assignment", "student__user", "graded_by__user", "submitted_by")
         }
         roster = list(class_roster(assignment.classroom))
         # Someone who handed in and has since left the class still shows.
@@ -339,7 +366,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         data = GradeSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         submission = (
-            assignment.submissions.select_related("assignment", "student__user")
+            assignment.submissions.select_related("assignment", "student__user", "submitted_by")
             .filter(id=data.validated_data["submission"])
             .first()
         )
@@ -361,7 +388,7 @@ def submissions_by_assignment(tenant, student_ids):
     result = {sid: {} for sid in student_ids}
     rows = AssignmentSubmission.objects.filter(
         tenant=tenant, student_id__in=student_ids
-    ).select_related("assignment", "student__user", "graded_by__user")
+    ).select_related("assignment", "student__user", "graded_by__user", "submitted_by")
     for row in rows:
         result[row.student_id][row.assignment_id] = SubmissionSerializer(row).data
     return result

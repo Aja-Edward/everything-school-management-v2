@@ -86,8 +86,9 @@ class Assignment(TenantMixin, models.Model):
 class AssignmentSubmission(TenantMixin, models.Model):
     """
     A student's work for an assignment: a written answer, a file, or both.
-    One per student per assignment; the student may replace it until the
-    teacher marks it. Clearing the mark hands it back for another try.
+    One per student per assignment; the student, or a parent for them, may
+    replace it until the teacher marks it. Clearing the mark hands it back
+    for another try.
     """
 
     assignment = models.ForeignKey(
@@ -105,6 +106,15 @@ class AssignmentSubmission(TenantMixin, models.Model):
     attachment_public_id = models.CharField(max_length=255, blank=True)
     # Moves forward each time the student resubmits; lateness reads from it.
     submitted_at = models.DateTimeField(default=timezone.now)
+    # The student, or a parent handing in for a child too young to log in.
+    # Whoever saved it last.
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     # Free text, so a teacher can write "8/10", "B" or "Excellent".
     grade = models.CharField(max_length=20, blank=True)
