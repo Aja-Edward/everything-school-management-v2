@@ -8,6 +8,9 @@ from .serializers import (
     EventSerializer, EventCreateSerializer, EventUpdateSerializer,
     EventImageSerializer, EventImageUpdateSerializer, EventActivationSerializer, ActiveEventSerializer
 )
+from common.admin_access import IsSchoolOrSectionAdmin
+
+EVENT_READ_ACTIONS = {"retrieve", "my_events", "published"}
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -21,7 +24,11 @@ class EventViewSet(viewsets.ModelViewSet):
         # Temporarily allow unauthenticated access for list and active actions
         if self.action in ["list", "active"]:
             return []  # Allow unauthenticated access for these actions
-        return [permissions.IsAuthenticated()]
+        if self.action in EVENT_READ_ACTIONS:
+            return [permissions.IsAuthenticated()]
+        # Every signed-in user could write here, so a student or parent could
+        # change, switch off or delete the school's website events.
+        return [IsSchoolOrSectionAdmin()]
     
     def get_serializer_class(self):
         if self.action == 'create':
@@ -243,7 +250,11 @@ class EventImageViewSet(viewsets.ModelViewSet):
     """
     queryset = EventImage.objects.all()
     serializer_class = EventImageUpdateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [IsSchoolOrSectionAdmin()]
 
     def get_serializer_class(self):
         # The update serializer has no image field, so an upload saved no file.
