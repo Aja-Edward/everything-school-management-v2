@@ -1,8 +1,29 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
 from tenants.models import TenantMixin
+
+
+def event_image_storage():
+    """
+    Event pictures go to Cloudinary outside development. settings.py names
+    Cloudinary in DEFAULT_FILE_STORAGE, but Django ignores that setting since
+    5.1, so pictures were saved to the web server's own disk: production
+    doesn't serve /media/, and each deploy wiped them anyway.
+    """
+    from django.core.files.storage import default_storage
+
+    if settings.DEBUG:
+        return default_storage
+    try:
+        from cloudinary_storage.storage import MediaCloudinaryStorage
+
+        return MediaCloudinaryStorage()
+    except ImproperlyConfigured:
+        # Missing Cloudinary keys must not stop the whole site from starting.
+        return default_storage
 
 
 class Event(TenantMixin, models.Model):
@@ -112,7 +133,7 @@ class Event(TenantMixin, models.Model):
 
 class EventImage(TenantMixin, models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(upload_to='event_images/')
+    image = models.ImageField(upload_to='event_images/', storage=event_image_storage)
     title = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
     alt_text = models.CharField(max_length=200, blank=True)

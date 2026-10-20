@@ -417,6 +417,16 @@ export const router = createBrowserRouter([
         path: 'school_activities',
         element: <SchoolActivitiesRoute />,
       },
+      // Schools link event buttons to /event or /events; both show the
+      // school's events.
+      {
+        path: 'event',
+        element: <SchoolActivitiesRoute />,
+      },
+      {
+        path: 'events',
+        element: <SchoolActivitiesRoute />,
+      },
 
       // Onboarding routes (no navbar/footer)
       {

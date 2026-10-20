@@ -172,3 +172,18 @@ class EventWriteAccessTest(EventTestBase):
         response = self.call("get", EVENTS + "active/")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.data["id"], ours.id)
+
+
+class EventImageStorageTests(APITestCase):
+    """
+    Event pictures were saved to the web server's disk (Django ignores
+    DEFAULT_FILE_STORAGE since 5.1), so on the live site they never loaded.
+    """
+
+    def test_pictures_go_to_cloudinary_outside_development(self):
+        from django.test import override_settings
+        from cloudinary_storage.storage import MediaCloudinaryStorage
+        from events.models import event_image_storage
+
+        with override_settings(DEBUG=False):
+            self.assertIsInstance(event_image_storage(), MediaCloudinaryStorage)

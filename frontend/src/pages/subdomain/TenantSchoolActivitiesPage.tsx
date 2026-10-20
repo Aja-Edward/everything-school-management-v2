@@ -5,7 +5,7 @@ import LandingPageService, { TenantLandingPage, LandingSection } from '@/service
 import TenantNavbar from '@/components/tenant/TenantNavbar';
 import TenantFooter from '@/components/tenant/TenantFooter';
 import RibbonBanner from '@/components/tenant/RibbonBanner';
-import api from '@/services/api';
+import { fetchLiveEvents, eventImage } from '@/utils/schoolEvents';
 import { ArrowLeft, Calendar, Tag } from 'lucide-react';
 
 interface ActivityEvent {
@@ -15,14 +15,15 @@ interface ActivityEvent {
   description?: string;
   image?: string;
   event_type: string;
-  start_date?: string;
-  end_date?: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  ribbon_text?: string;
   is_active: boolean;
   is_published: boolean;
   display_type: string;
 }
 
-function formatDate(dateStr?: string): string {
+function formatDate(dateStr?: string | null): string {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',
@@ -47,7 +48,7 @@ const TenantSchoolActivitiesPage: React.FC = () => {
   useEffect(() => {
     Promise.all([
       LandingPageService.getPublic().catch(() => null),
-      api.get('/events/events/?is_active=true&is_published=true').catch(() => ({ results: [] })),
+      fetchLiveEvents().catch(() => []),
     ]).then(([landingData, eventsData]) => {
       if (landingData) {
         setLanding(landingData);
@@ -61,11 +62,11 @@ const TenantSchoolActivitiesPage: React.FC = () => {
           setRibbonSpeed(landingData.ribbon_speed ?? 'medium');
         }
       }
-      const evts: ActivityEvent[] = eventsData?.results ?? eventsData ?? [];
-      const published = evts.filter(e => e.is_active && e.is_published);
+      // The API sends a list of images; the card reads one picture.
+      const published: ActivityEvent[] = eventsData.map(e => ({ ...e, image: eventImage(e) }));
       const ribbonEvt = published.find(e => e.display_type === 'ribbon');
       if (ribbonEvt) {
-        setRibbonText(ribbonEvt.title);
+        setRibbonText(ribbonEvt.ribbon_text || ribbonEvt.title);
         setRibbonSpeed('medium');
       }
       setActivities(published.filter(e => e.display_type !== 'ribbon'));
