@@ -1,5 +1,5 @@
-import React from 'react';
-import { CalendarDays, Paperclip, Pencil, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { CalendarDays, Download, Loader2, Paperclip, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Assignment, formatDueDate, todayInLagos } from '@/services/AssignmentService';
 
@@ -16,6 +16,26 @@ interface AssignmentCardProps {
   onDelete?: (assignment: Assignment) => void;
 }
 
+// Cloudinary stores the file under a random id, so a plain link would save
+// it under that id. Fetching it lets us save it under the teacher's filename;
+// if the fetch is blocked we fall back to opening the file.
+const downloadAttachment = async (url: string, filename: string) => {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blobUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+};
+
 /** One assignment as teachers, parents and students all read it. */
 const AssignmentCard: React.FC<AssignmentCardProps> = ({ assignment, showClass = true, onEdit, onDelete }) => {
   const context = [
@@ -23,6 +43,13 @@ const AssignmentCard: React.FC<AssignmentCardProps> = ({ assignment, showClass =
     assignment.subject_name || 'General',
     assignment.teacher_name,
   ].filter(Boolean).join(' · ');
+  const [downloading, setDownloading] = useState(false);
+
+  const download = async () => {
+    setDownloading(true);
+    await downloadAttachment(assignment.attachment_url, assignment.attachment_name || 'assignment');
+    setDownloading(false);
+  };
 
   return (
     <div
@@ -74,15 +101,26 @@ const AssignmentCard: React.FC<AssignmentCardProps> = ({ assignment, showClass =
       )}
 
       {assignment.attachment_url && (
-        <a
-          href={assignment.attachment_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline mt-3 break-all"
-        >
-          <Paperclip className="w-4 h-4 shrink-0" />
-          {assignment.attachment_name || 'Attachment'}
-        </a>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
+          <a
+            href={assignment.attachment_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline break-all"
+          >
+            <Paperclip className="w-4 h-4 shrink-0" />
+            {assignment.attachment_name || 'Attachment'}
+          </a>
+          <button
+            type="button"
+            onClick={download}
+            disabled={downloading}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {downloading ? 'Downloading…' : 'Download'}
+          </button>
+        </div>
       )}
     </div>
   );
