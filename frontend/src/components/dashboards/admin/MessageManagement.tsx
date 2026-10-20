@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import {
   MessageSquare,
@@ -75,43 +75,77 @@ const MessageManagement: React.FC = () => {
     is_active: true
   });
 
-  // Load data
-  useEffect(() => {
-    loadData();
-  }, [activeTab]);
+  // Load data.
+  // This used to fetch the tab's list, wait for it, then fetch the whole
+  // school's user list and the counts, all behind a full-page spinner, and
+  // do it again on every tab switch. Now the list and the counts load side by
+  // side, each tab's list is kept so switching back is instant, and the user
+  // list (only needed to compose) loads when Compose is first opened.
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  const listCache = useRef<Partial<Record<string, Message[] | MessageTemplate[]>>>({});
+  const usersLoaded = useRef(false);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-
-      if (activeTab === 'inbox' || activeTab === 'sent' || activeTab === 'drafts') {
-        const messagesData = await MessageService.getMessages({ type: activeTab });
-        // Ensure messages is always an array, even if API returns undefined/null
-        setMessages(Array.isArray(messagesData) ? messagesData : []);
-      } else if (activeTab === 'templates') {
-        const templatesData = await MessageService.getTemplates();
-        // Ensure templates is always an array
-        setTemplates(Array.isArray(templatesData) ? templatesData : []);
-      }
-
-      // Load users and stats
-      const [usersData, statsData] = await Promise.all([
-        MessageService.getUsers(),
-        MessageService.getMessageStats()
-      ]);
-      setUsers(Array.isArray(usersData) ? usersData : []);
-      setStats(statsData || null);
-
-    } catch (error) {
-      console.error('Error loading data:', error);
-      toast.error('Failed to load data');
-      // Reset to empty arrays on error to prevent undefined errors
-      setMessages([]);
-      setTemplates([]);
-      setUsers([]);
-    } finally {
+  const loadList = async (tab: typeof activeTab) => {
+    if (tab === 'bulk') { setLoading(false); return; }
+    const cached = listCache.current[tab];
+    if (cached) {
+      if (tab === 'templates') setTemplates(cached as MessageTemplate[]);
+      else setMessages(cached as Message[]);
       setLoading(false);
+    } else {
+      setLoading(true);
     }
+    try {
+      if (tab === 'templates') {
+        const data = await MessageService.getTemplates();
+        const list = Array.isArray(data) ? data : [];
+        listCache.current[tab] = list;
+        if (activeTabRef.current === tab) setTemplates(list);
+      } else {
+        const data = await MessageService.getMessages({ type: tab });
+        // Ensure messages is always an array, even if API returns undefined/null
+        const list = Array.isArray(data) ? data : [];
+        listCache.current[tab] = list;
+        if (activeTabRef.current === tab) setMessages(list);
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error);
+      if (activeTabRef.current === tab && !cached) {
+        toast.error('Failed to load messages');
+        if (tab === 'templates') setTemplates([]); else setMessages([]);
+      }
+    } finally {
+      if (activeTabRef.current === tab) setLoading(false);
+    }
+  };
+
+  const loadStats = () =>
+    MessageService.getMessageStats()
+      .then(data => setStats(data || null))
+      .catch(error => console.error('Error loading message stats:', error));
+
+  const loadUsers = () => {
+    if (usersLoaded.current) return;
+    usersLoaded.current = true;
+    MessageService.getUsers()
+      .then(data => setUsers(Array.isArray(data) ? data : []))
+      .catch(error => {
+        usersLoaded.current = false;
+        console.error('Error loading users:', error);
+        toast.error('Failed to load recipients');
+      });
+  };
+
+  useEffect(() => { loadStats(); }, []);
+  useEffect(() => { loadList(activeTab); }, [activeTab]);
+  useEffect(() => { if (showComposeModal) loadUsers(); }, [showComposeModal]);
+
+  /** Refresh after a change: the lists are stale, so drop them. */
+  const loadData = () => {
+    listCache.current = {};
+    loadList(activeTabRef.current);
+    loadStats();
   };
 
   // Message actions
@@ -198,15 +232,6 @@ const MessageManagement: React.FC = () => {
     ...(canSendBulk ? [{ id: 'bulk', label: 'Bulk Messages', icon: Users, count: 0 }] : []),
   ];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-2 text-gray-600">Loading messages...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -275,7 +300,12 @@ const MessageManagement: React.FC = () => {
 
       {/* Content */}
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        {activeTab === 'inbox' || activeTab === 'sent' || activeTab === 'drafts' ? (
+        {loading && activeTab !== 'bulk' ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <span className="ml-2 text-gray-600 dark:text-gray-300">Loading messages...</span>
+          </div>
+        ) : activeTab === 'inbox' || activeTab === 'sent' || activeTab === 'drafts' ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700">
