@@ -1,10 +1,12 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django.db.models import Q, Count
+from django.db import transaction
+from django.db.models import Q, Count, Sum
 from django.utils import timezone
 from tenants.mixins import TenantFilterMixin
 from utils.pagination import StandardResultsPagination
+from .delivery import AUDIENCES, bulk_recipients, deliver, is_school_admin, school_users
 from .models import Message, MessageTemplate, BulkMessage
 from .serializers import (
     MessageSerializer, MessageCreateSerializer, MessageUpdateSerializer,
@@ -12,7 +14,7 @@ from .serializers import (
 )
 from .permissions import IsParentTeacherOrAdmin
 from users.models import CustomUser
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from common.admin_access import in_same_school
 from tenants.membership import in_school_q, user_school_id
 
@@ -71,7 +73,13 @@ class MessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         recipient = serializer.validated_data.get("recipient")
         if recipient is not None and not in_same_school(self.request.user, recipient):
             raise ValidationError({"recipient": "No such user in your school."})
-        serializer.save(sender=self.request.user)
+        if serializer.validated_data.get("message_type") in ("sms", "bulk"):
+            raise ValidationError({"message_type": "Send it in the app or by email."})
+        tenant = getattr(self.request, "tenant", None)
+        message = serializer.save(sender=self.request.user, tenant=tenant)
+        # Saved as a draft by default; nothing marked it sent or told the
+        # recipient until this.
+        deliver([message], tenant)
 
     @action(detail=True, methods=['post'])
     def mark_as_read(self, request, pk=None):
@@ -183,11 +191,24 @@ class MessageTemplateViewSet(TenantFilterMixin, viewsets.ModelViewSet):
 
 
 class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
-    """CRITICAL: TenantFilterMixin ensures tenant isolation."""
+    """
+    An admin's message to a whole group (all teachers, all parents, ...) in
+    their school. Sending stores one Message per recipient, so each finds it
+    in their own Messages inbox, and rings their notification bell.
+
+    CRITICAL: TenantFilterMixin ensures tenant isolation.
+    """
     queryset = BulkMessage.objects.all()  # Base queryset - will be filtered by mixins and get_queryset()
     serializer_class = BulkMessageSerializer
     permission_classes = [permissions.IsAuthenticated, IsParentTeacherOrAdmin]
     pagination_class = StandardResultsPagination  # PERFORMANCE: Paginate bulk messages
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        # Any teacher or parent could reach this before, and so message the
+        # whole school.
+        if not is_school_admin(request.user):
+            raise PermissionDenied("Only school admins send bulk messages.")
 
     def get_queryset(self):
         # CRITICAL: Call super() to get tenant-filtered queryset first
@@ -199,48 +220,62 @@ class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         return queryset.filter(sender=self.request.user)
 
     def perform_create(self, serializer):
-        bulk_message = serializer.save(sender=self.request.user)
-        
-        # Calculate total recipients
-        total_recipients = 0
-        
-        # Count recipients by roles
-        if bulk_message.recipient_roles:
-            # The sender's school's users, not every school's.
-            school_id = user_school_id(self.request.user)
-            role_count = CustomUser.objects.filter(
-                in_school_q(school_id),
-                role__in=bulk_message.recipient_roles,
-                is_active=True
-            ).exclude(id=self.request.user.id).distinct().count()
-            total_recipients += role_count
-        
-        # Count custom recipients
-        if bulk_message.custom_recipients:
-            total_recipients += len(bulk_message.custom_recipients)
-        
-        # Update total recipients count
-        bulk_message.total_recipients = total_recipients
-        bulk_message.save(update_fields=['total_recipients'])
+        data = serializer.validated_data
+        unknown = set(data.get("recipient_roles") or []) - set(AUDIENCES)
+        if unknown:
+            raise ValidationError({"recipient_roles": f"Choose from {', '.join(sorted(AUDIENCES))}."})
+        if data.get("recipient_groups"):
+            raise ValidationError({"recipient_groups": "Sending to a class is not available yet."})
+        if data.get("message_type") in ("sms", "bulk"):
+            raise ValidationError({"message_type": "Send it in the app or by email."})
+
+        named = {int(pk) for pk in data.get("custom_recipients") or [] if str(pk).isdigit()}
+        in_school = set(school_users(self.request.user).filter(pk__in=named).values_list("pk", flat=True))
+        if named - in_school:
+            raise ValidationError({"custom_recipients": "Some of these people are not in your school."})
+
+        # Checked before saving, so a refused request leaves no draft behind.
+        probe = BulkMessage(
+            sender=self.request.user, recipient_roles=data.get("recipient_roles") or [],
+            custom_recipients=data.get("custom_recipients") or [],
+        )
+        total = bulk_recipients(probe).count()
+        if not total:
+            raise ValidationError({"recipient_roles": "Nobody in your school matches these recipients."})
+        serializer.save(
+            sender=self.request.user, tenant=getattr(self.request, "tenant", None), total_recipients=total,
+        )
 
     @action(detail=True, methods=['post'])
     def send_now(self, request, pk=None):
-        """Send bulk message immediately"""
+        """Send a draft bulk message: one Message per recipient, each delivered."""
         bulk_message = self.get_object()
-        
+
         if bulk_message.status != 'draft':
             return Response(
-                {'error': 'Only draft messages can be sent'}, 
+                {'error': 'Only draft messages can be sent'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Here you would implement the actual sending logic
-        # For now, we'll just mark it as sent
-        bulk_message.status = 'sent'
-        bulk_message.sent_at = timezone.now()
-        bulk_message.save(update_fields=['status', 'sent_at'])
-        
-        return Response({'status': 'Bulk message sent'})
+
+        tenant = getattr(request, "tenant", None) or bulk_message.tenant
+        recipients = list(bulk_recipients(bulk_message))
+        with transaction.atomic():
+            messages = Message.objects.bulk_create([
+                Message(
+                    tenant=tenant, sender=request.user, recipient=user,
+                    subject=bulk_message.subject, content=bulk_message.content,
+                    message_type=bulk_message.message_type, priority=bulk_message.priority,
+                )
+                for user in recipients
+            ], batch_size=500)
+            deliver(messages, tenant)
+
+            bulk_message.status = 'sent'
+            bulk_message.sent_at = timezone.now()
+            bulk_message.total_recipients = bulk_message.sent_count = len(messages)
+            bulk_message.save(update_fields=['status', 'sent_at', 'total_recipients', 'sent_count'])
+
+        return Response(self.get_serializer(bulk_message).data)
 
     @action(detail=True, methods=['post'])
     def schedule(self, request, pk=None):
@@ -266,7 +301,7 @@ class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
         user = request.user
         total_bulk_messages = BulkMessage.objects.filter(sender=user).count()
         total_recipients = BulkMessage.objects.filter(sender=user).aggregate(
-            total=Count('total_recipients')
+            total=Sum('total_recipients')
         )['total'] or 0
         total_sent = BulkMessage.objects.filter(sender=user, status='sent').count()
         total_pending = BulkMessage.objects.filter(sender=user, status='pending').count()

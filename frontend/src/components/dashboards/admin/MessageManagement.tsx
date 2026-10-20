@@ -23,6 +23,8 @@ import {
   Bell
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import BulkMessagesPanel from '@/components/messaging/BulkMessagesPanel';
+import { useAuth } from '@/hooks/useAuth';
 import MessageService, {
   Message,
   MessageTemplate,
@@ -33,7 +35,15 @@ import MessageService, {
   CreateTemplateData
 } from '../../../services/MessageService';
 
+// School roles that may send a bulk message (the server checks the same).
+const ADMIN_ROLES = [
+  'superadmin', 'admin', 'secondary_admin', 'senior_secondary_admin',
+  'junior_secondary_admin', 'primary_admin', 'nursery_admin',
+];
+
 const MessageManagement: React.FC = () => {
+  const { user } = useAuth();
+  const canSendBulk = ADMIN_ROLES.includes(((user as any)?.role || '').toLowerCase());
   // State management
   const [activeTab, setActiveTab] = useState<'inbox' | 'sent' | 'drafts' | 'templates' | 'bulk'>('inbox');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -184,7 +194,8 @@ const MessageManagement: React.FC = () => {
     { id: 'sent', label: 'Sent', icon: Send, count: stats?.total_sent || 0 },
     { id: 'drafts', label: 'Drafts', icon: FileText, count: stats?.total_drafts || 0 },
     { id: 'templates', label: 'Templates', icon: Settings, count: templates?.length || 0 },
-    { id: 'bulk', label: 'Bulk Messages', icon: Users, count: 0 },
+    // Only school admins may message a whole group.
+    ...(canSendBulk ? [{ id: 'bulk', label: 'Bulk Messages', icon: Users, count: 0 }] : []),
   ];
 
   if (loading) {
@@ -427,16 +438,8 @@ const MessageManagement: React.FC = () => {
               ))}
             </div>
           </div>
-        ) : activeTab === 'bulk' ? (
-          <div className="p-6">
-            <div className="text-center py-12">
-              <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Bulk Messaging</h3>
-              <p className="text-gray-600 dark:text-gray-300">
-                Send messages to multiple recipients at once. This feature is coming soon.
-              </p>
-            </div>
-          </div>
+        ) : activeTab === 'bulk' && canSendBulk ? (
+          <BulkMessagesPanel />
         ) : null}
       </div>
 
@@ -497,7 +500,6 @@ const MessageManagement: React.FC = () => {
                 >
                   <option value="in_app">In-App Message</option>
                   <option value="email">Email</option>
-                  <option value="sms">SMS</option>
                 </select>
               </div>
 

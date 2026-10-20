@@ -137,6 +137,10 @@ export interface MessageFilters {
   ordering?: string;
 }
 
+// api.get/post return the parsed body, not an axios-style { data }. Paginated
+// endpoints wrap their rows as { count, next, previous, results }.
+const listFrom = <T>(body: any): T[] => (Array.isArray(body) ? body : body?.results || []);
+
 class MessageService {
   // Message CRUD operations
   async getMessages(filters: MessageFilters = {}): Promise<Message[]> {
@@ -151,23 +155,19 @@ class MessageService {
     if (filters.search) params.append('search', filters.search);
     if (filters.ordering) params.append('ordering', filters.ordering);
 
-    const response = await api.get(`/api/messaging/messages/?${params.toString()}`);
-    return response.data;
+    return listFrom(await api.get(`/api/messaging/messages/?${params.toString()}`));
   }
 
   async getMessage(id: number): Promise<Message> {
-    const response = await api.get(`/api/messaging/messages/${id}/`);
-    return response.data;
+    return await api.get(`/api/messaging/messages/${id}/`);
   }
 
   async createMessage(data: CreateMessageData): Promise<Message> {
-    const response = await api.post('/api/messaging/messages/', data);
-    return response.data;
+    return await api.post('/api/messaging/messages/', data);
   }
 
   async updateMessage(id: number, data: UpdateMessageData): Promise<Message> {
-    const response = await api.patch(`/api/messaging/messages/${id}/`, data);
-    return response.data;
+    return await api.patch(`/api/messaging/messages/${id}/`, data);
   }
 
   async deleteMessage(id: number): Promise<void> {
@@ -197,35 +197,29 @@ class MessageService {
 
   // Message statistics
   async getMessageStats(): Promise<MessageStats> {
-    const response = await api.get('/api/messaging/messages/stats/');
-    return response.data;
+    return await api.get('/api/messaging/messages/stats/');
   }
 
   // User list for message composition
   async getUsers(): Promise<User[]> {
-    const response = await api.get('/api/messaging/messages/users/');
-    return response.data;
+    return await api.get('/api/messaging/messages/users/');
   }
 
   // Template CRUD operations
   async getTemplates(): Promise<MessageTemplate[]> {
-    const response = await api.get('/api/messaging/templates/');
-    return response.data;
+    return listFrom(await api.get('/api/messaging/templates/'));
   }
 
   async getTemplate(id: number): Promise<MessageTemplate> {
-    const response = await api.get(`/api/messaging/templates/${id}/`);
-    return response.data;
+    return await api.get(`/api/messaging/templates/${id}/`);
   }
 
   async createTemplate(data: CreateTemplateData): Promise<MessageTemplate> {
-    const response = await api.post('/api/messaging/templates/', data);
-    return response.data;
+    return await api.post('/api/messaging/templates/', data);
   }
 
   async updateTemplate(id: number, data: Partial<CreateTemplateData>): Promise<MessageTemplate> {
-    const response = await api.patch(`/api/messaging/templates/${id}/`, data);
-    return response.data;
+    return await api.patch(`/api/messaging/templates/${id}/`, data);
   }
 
   async deleteTemplate(id: number): Promise<void> {
@@ -233,29 +227,24 @@ class MessageService {
   }
 
   async useTemplate(id: number): Promise<{ subject: string; content: string; message_type: string }> {
-    const response = await api.post(`/api/messaging/templates/${id}/use_template/`);
-    return response.data;
+    return await api.post(`/api/messaging/templates/${id}/use_template/`);
   }
 
   // Bulk message CRUD operations
   async getBulkMessages(): Promise<BulkMessage[]> {
-    const response = await api.get('/api/messaging/bulk-messages/');
-    return response.data;
+    return listFrom(await api.get('/api/messaging/bulk-messages/'));
   }
 
   async getBulkMessage(id: number): Promise<BulkMessage> {
-    const response = await api.get(`/api/messaging/bulk-messages/${id}/`);
-    return response.data;
+    return await api.get(`/api/messaging/bulk-messages/${id}/`);
   }
 
   async createBulkMessage(data: CreateBulkMessageData): Promise<BulkMessage> {
-    const response = await api.post('/api/messaging/bulk-messages/', data);
-    return response.data;
+    return await api.post('/api/messaging/bulk-messages/', data);
   }
 
   async updateBulkMessage(id: number, data: Partial<CreateBulkMessageData>): Promise<BulkMessage> {
-    const response = await api.patch(`/api/messaging/bulk-messages/${id}/`, data);
-    return response.data;
+    return await api.patch(`/api/messaging/bulk-messages/${id}/`, data);
   }
 
   async deleteBulkMessage(id: number): Promise<void> {
@@ -263,8 +252,9 @@ class MessageService {
   }
 
   // Bulk message actions
-  async sendBulkMessage(id: number): Promise<void> {
-    await api.post(`/api/messaging/bulk-messages/${id}/send_now/`);
+  /** Sends a draft to everyone it names; returns it with its sent_count. */
+  async sendBulkMessage(id: number): Promise<BulkMessage> {
+    return await api.post(`/api/messaging/bulk-messages/${id}/send_now/`);
   }
 
   async scheduleBulkMessage(id: number, scheduledAt: string): Promise<void> {
@@ -275,8 +265,7 @@ class MessageService {
 
   // Bulk message statistics
   async getBulkMessageStats(): Promise<BulkMessageStats> {
-    const response = await api.get('/api/messaging/bulk-messages/stats/');
-    return response.data;
+    return await api.get('/api/messaging/bulk-messages/stats/');
   }
 
   // Utility methods
