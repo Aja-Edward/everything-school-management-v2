@@ -43,3 +43,11 @@ def notify_parents_of_mark(submission_id):
                 "Marked-assignment email to parent %s for submission %s not sent: %s",
                 user.id, submission.id, result.error)
     return sent
+
+
+@shared_task
+def send_new_assignment_digests():
+    """The parents' daily email of newly set assignments (see assignment/digest.py)."""
+    from .digest import send_new_assignment_digests as send_digests
+
+    return send_digests()

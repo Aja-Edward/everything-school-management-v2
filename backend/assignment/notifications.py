@@ -18,7 +18,7 @@ parent's dashboard either way.
 from parent.models import ParentStudentRelationship
 
 
-def _name(user):
+def display_name(user):
     return (user.get_full_name() or user.username).strip()
 
 
@@ -41,18 +41,18 @@ def parents_of(student):
 def render(submission, parent_user):
     """(subject, body) for one parent."""
     assignment = submission.assignment
-    child = _name(submission.student.user)
+    child = display_name(submission.student.user)
     first = child.split()[0] if child else "Your child"
     subject_name = assignment.subject.name if assignment.subject_id else None
     school = submission.tenant.name if submission.tenant_id else "School"
 
     lines = [
-        f"Dear {_name(parent_user)},",
+        f"Dear {display_name(parent_user)},",
         "",
         f'{child}\'s assignment "{assignment.title}"'
         + (f" ({subject_name})" if subject_name else "")
         + " has been marked"
-        + (f" by {_name(submission.graded_by.user)}" if submission.graded_by_id else "")
+        + (f" by {display_name(submission.graded_by.user)}" if submission.graded_by_id else "")
         + ".",
         "",
     ]

@@ -8,6 +8,7 @@ import os
 import sys
 from dotenv import load_dotenv
 from datetime import timedelta
+from celery.schedules import crontab
 import dj_database_url
 import cloudinary
 
@@ -429,6 +430,12 @@ CELERY_BEAT_SCHEDULE = {
     "close-expired-cbt-attempts": {
         "task": "cbt.tasks.close_expired_attempts",
         "schedule": timedelta(minutes=1),
+    },
+    # One email per parent listing the day's new assignments (see
+    # assignment/digest.py). 4pm Lagos time, after the school day.
+    "send-new-assignment-digests": {
+        "task": "assignment.tasks.send_new_assignment_digests",
+        "schedule": crontab(hour=16, minute=0),
     },
 }
 

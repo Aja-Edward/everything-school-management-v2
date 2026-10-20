@@ -32,6 +32,7 @@ from teacher.models import Teacher
 from tenants.models import Tenant
 from utils.notifications import SendResult
 
+from .digest import send_new_assignment_digests
 from .models import Assignment, AssignmentSubmission
 
 User = get_user_model()
@@ -929,3 +930,118 @@ class MarkedNotificationTest(APITestCase):
 
         self.assertEqual(notify_parents_of_mark(self.work.id), 0)  # never marked
         send.assert_not_called()
+
+
+@patch("assignment.digest.channels.send", return_value=SendResult.success("brevo"))
+class NewAssignmentDigestTest(APITestCase):
+    """One email per parent per run, listing the new work for all their children."""
+
+    def setUp(self):
+        self.school = School("digest-school")
+        s = self.school
+        self.fractions = s.assignment(s.jss1, s.maths_teacher, s.maths, due_in_days=3, title="Fractions")
+        self.essay = s.assignment(s.jss1, s.english_teacher, s.english, due_in_days=5, title="Essay")
+
+    def sent_to(self, send):
+        return sorted(c.kwargs["destination"] for c in send.call_args_list)
+
+    def test_each_parent_gets_one_email_listing_the_new_work(self, send):
+        s = self.school
+
+        summary = send_new_assignment_digests()
+
+        self.assertEqual(self.sent_to(send), [s.jss1_parent.user.email])  # not JSS 2's parent
+        email = send.call_args.kwargs
+        self.assertEqual(email["tenant"], s.tenant)
+        self.assertEqual(email["subject"], "New assignments for Ada")
+        self.assertIn("Ada Test (JSS 1)", email["body"])
+        self.assertIn("- Mathematics: Fractions, due", email["body"])
+        self.assertIn("- English: Essay, due", email["body"])
+        self.assertEqual((summary["assignments"], summary["sent"]), (2, 1))
+
+    def test_work_is_announced_once(self, send):
+        send_new_assignment_digests()
+        send.reset_mock()
+
+        summary = send_new_assignment_digests()
+
+        send.assert_not_called()
+        self.assertEqual(summary["assignments"], 0)
+        self.assertFalse(Assignment.objects.filter(parents_notified_at__isnull=True).exists())
+
+    def test_a_parent_of_two_children_gets_one_email_for_both(self, send):
+        s = self.school
+        ParentStudentRelationship.objects.create(
+            tenant=s.tenant, parent=s.jss1_parent, student=s.jss2_child, relationship="Mother")
+        s.assignment(s.jss2, s.jss2_teacher, s.maths, title="Algebra")
+
+        send_new_assignment_digests()
+
+        mum = [c.kwargs for c in send.call_args_list if c.kwargs["destination"] == s.jss1_parent.user.email]
+        self.assertEqual(len(mum), 1)
+        self.assertEqual(mum[0]["subject"], "New assignments for Ada and Bayo")
+        self.assertIn("Bayo Test (JSS 2)", mum[0]["body"])
+        self.assertIn("Algebra", mum[0]["body"])
+
+    def test_work_already_past_due_is_not_announced(self, send):
+        Assignment.objects.all().delete()
+        s = self.school
+        late = s.assignment(s.jss1, s.maths_teacher, s.maths, due_in_days=-1, title="Old")
+
+        send_new_assignment_digests()
+
+        send.assert_not_called()
+        late.refresh_from_db()
+        self.assertIsNotNone(late.parents_notified_at)  # and not tried again tomorrow
+
+    def test_each_school_emails_its_own_parents(self, send):
+        other = School("digest-other")
+        other.assignment(other.jss1, other.maths_teacher, other.maths, title="Theirs")
+
+        send_new_assignment_digests()
+
+        by_parent = {c.kwargs["destination"]: c.kwargs for c in send.call_args_list}
+        theirs = by_parent[other.jss1_parent.user.email]
+        self.assertEqual(theirs["tenant"], other.tenant)
+        self.assertIn("Theirs", theirs["body"])
+        self.assertNotIn("Fractions", theirs["body"])
+        self.assertNotIn("Theirs", by_parent[self.school.jss1_parent.user.email]["body"])
+
+    def test_dry_run_sends_and_marks_nothing(self, send):
+        summary = send_new_assignment_digests(dry_run=True)
+
+        send.assert_not_called()
+        self.assertEqual((summary["assignments"], summary["parents"]), (2, 1))
+        self.assertEqual(Assignment.objects.filter(parents_notified_at__isnull=True).count(), 2)
+
+    def test_one_failed_email_does_not_stop_the_rest(self, send):
+        s = self.school
+        s.parent("ada_dad", s.jss1_child)
+        send.side_effect = [SendResult.failure("brevo", "Brevo returned 500"), SendResult.success("brevo")]
+
+        summary = send_new_assignment_digests()
+
+        self.assertEqual(len(self.sent_to(send)), 2)
+        self.assertEqual((summary["sent"], summary["failed"]), (1, 1))
+
+    def test_a_single_assignment_reads_in_the_singular(self, send):
+        self.essay.delete()
+
+        send_new_assignment_digests()
+
+        email = send.call_args.kwargs
+        self.assertEqual(email["subject"], "New assignment for Ada")
+        self.assertIn("A new assignment has been set:", email["body"])
+
+    def test_new_work_from_the_api_waits_for_the_digest(self, send):
+        s = self.school
+        self.client.force_authenticate(user=s.maths_teacher.user)
+
+        response = self.client.post(URL, {
+            "classroom": s.jss1.id, "subject": s.maths.id, "title": "Decimals",
+            "due_date": str(timezone.localdate() + timedelta(days=2)),
+        }, format="json", HTTP_X_TENANT_SLUG=s.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        send.assert_not_called()  # nothing goes out when the work is set
+        self.assertIsNone(Assignment.objects.get(title="Decimals").parents_notified_at)
