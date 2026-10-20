@@ -30,6 +30,7 @@ from students.models import Student
 from subject.models import Subject
 from teacher.models import Teacher
 from tenants.models import Tenant
+from utils.notifications import SendResult
 
 from .models import Assignment, AssignmentSubmission
 
@@ -828,3 +829,103 @@ class SubmissionTest(APITestCase):
 
         delete.assert_any_call("assignments/1/submissions/s.pdf")
         self.assertFalse(AssignmentSubmission.objects.exists())
+
+
+def run_inline(task, **kwargs):
+    """dispatch_task, minus the background thread, so tests see what it sent."""
+    return task(**kwargs)
+
+
+@patch("assignment.views.dispatch_task", side_effect=run_inline)
+@patch("assignment.tasks.channels.send", return_value=SendResult.success("brevo"))
+class MarkedNotificationTest(APITestCase):
+    """Parents get one email when their child's work is marked, not on every edit."""
+
+    def setUp(self):
+        self.school = School("notify-school")
+        self.other = School("notify-other")
+        s = self.school
+        self.fractions = s.assignment(s.jss1, s.maths_teacher, s.maths, title="Fractions")
+        self.work = AssignmentSubmission.objects.create(
+            tenant=s.tenant, assignment=self.fractions, student=s.jss1_child, text="1/2")
+        self.client.force_authenticate(user=s.maths_teacher.user)
+
+    def grade(self, grade="8/10", feedback="Good work"):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{URL}{self.fractions.id}/grade/",
+                {"submission": self.work.id, "grade": grade, "feedback": feedback},
+                format="json", HTTP_X_TENANT_SLUG=self.school.slug)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return response
+
+    def test_each_parent_is_emailed_the_mark(self, send, _dispatch):
+        s = self.school
+        dad = s.parent("ada_dad", s.jss1_child)
+
+        self.grade("8/10", "Check question 3")
+
+        self.assertEqual(sorted(c.kwargs["destination"] for c in send.call_args_list),
+                         sorted([s.jss1_parent.user.email, dad.user.email]))
+        email = send.call_args.kwargs
+        self.assertEqual(email["channel"], "email")
+        self.assertEqual(email["tenant"], s.tenant)
+        self.assertEqual(email["subject"], "Ada's Fractions has been marked")
+        self.assertIn('"Fractions" (Mathematics) has been marked by Maths Test.', email["body"])
+        self.assertIn("Grade: 8/10", email["body"])
+        self.assertIn("Feedback: Check question 3", email["body"])
+
+    def test_changing_a_mark_sends_nothing_more(self, send, _dispatch):
+        self.grade("7/10")
+        send.reset_mock()
+
+        self.grade("8/10")
+
+        send.assert_not_called()
+
+    def test_handing_back_sends_nothing_but_marking_again_does(self, send, _dispatch):
+        self.grade()
+        send.reset_mock()
+
+        self.grade("", "")
+        send.assert_not_called()
+
+        self.grade("9/10")
+        send.assert_called_once()
+
+    def test_only_this_childs_parents_with_an_email_are_sent_to(self, send, _dispatch):
+        # Bayo's dad (s.jss2_parent) is a parent here too, of another child.
+        s = self.school
+        no_email = s.parent("ada_aunt", s.jss1_child)
+        no_email.user.email = ""
+        no_email.user.save()
+
+        self.grade()
+
+        self.assertEqual([c.kwargs["destination"] for c in send.call_args_list],
+                         [s.jss1_parent.user.email])
+
+    def test_another_schools_parent_link_is_ignored(self, send, _dispatch):
+        s = self.school
+        # A stray link from another school's parent to this child.
+        ParentStudentRelationship.objects.create(
+            tenant=self.other.tenant, parent=self.other.jss1_parent, student=s.jss1_child,
+            relationship="Father")
+
+        self.grade()
+
+        self.assertEqual([c.kwargs["destination"] for c in send.call_args_list],
+                         [s.jss1_parent.user.email])
+
+    def test_a_failed_send_does_not_fail_the_mark(self, send, _dispatch):
+        send.return_value = SendResult.failure("brevo", "Brevo returned 500")
+
+        response = self.grade()
+
+        self.assertTrue(response.data["is_graded"])
+
+    def test_work_handed_back_before_the_email_goes_sends_nothing(self, send, _dispatch):
+        from .tasks import notify_parents_of_mark
+
+        self.assertEqual(notify_parents_of_mark(self.work.id), 0)  # never marked
+        send.assert_not_called()

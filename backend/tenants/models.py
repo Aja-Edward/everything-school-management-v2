@@ -356,7 +356,7 @@ class TenantService(models.Model):
         'question_bank': 'Keep questions to reuse across exams and terms.',
         'exam_builder': 'Assemble exam papers from your questions.',
         'cbt': 'Students sit exams on computers, with objective questions marked automatically.',
-        'email_notifications': 'Email parents about fees, attendance and school news, free of charge.',
+        'email_notifications': 'Email parents about fees, attendance, marked assignments and school news, free of charge.',
         'sms_notifications': 'Text parents about unpaid fees and other alerts. Charged per SMS sent.',
         'fees': 'Set fees, record payments and see who still owes.',
         'timetable': 'Build class and teacher timetables.',

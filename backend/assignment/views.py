@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from classroom.models import StudentEnrollment
 from common.admin_access import admin_level_access
+from common.dispatch import dispatch_task
 from students.models import Student
 from teacher.models import Teacher
 
@@ -28,6 +29,7 @@ from .access import (
 )
 from .models import Assignment, AssignmentSubmission
 from .serializers import AssignmentSerializer, GradeSerializer, SubmissionSerializer
+from .tasks import notify_parents_of_mark
 
 
 class AssignmentViewSet(viewsets.ModelViewSet):
@@ -373,6 +375,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         if submission is None:
             raise NotFound("No such hand-in for this assignment.")
 
+        was_marked = submission.is_graded
         submission.grade = data.validated_data["grade"].strip()
         submission.feedback = data.validated_data["feedback"].strip()
         if submission.grade or submission.feedback:
@@ -380,6 +383,13 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         else:
             submission.graded_by, submission.graded_at = None, None
         submission.save(update_fields=["grade", "feedback", "graded_by", "graded_at"])
+
+        if submission.is_graded and not was_marked:
+            # Newly marked, not a correction to a mark: tell the parents,
+            # once the save has committed and off the request.
+            transaction.on_commit(
+                lambda: dispatch_task(notify_parents_of_mark, submission_id=submission.id)
+            )
         return Response(SubmissionSerializer(submission).data)
 
 
