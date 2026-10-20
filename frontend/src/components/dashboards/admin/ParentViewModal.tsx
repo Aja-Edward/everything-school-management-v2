@@ -3,9 +3,10 @@
 import React from "react";
 import {
   X, User, Phone, MapPin, Mail, GraduationCap,
-  BookOpen, Users, Shield, Calendar,
+  BookOpen, Users, Shield, Calendar, ClipboardList,
 } from "lucide-react";
 import type { Parent } from "@/services/ParentService";
+import StudentAssignmentsPanel from "@/components/assignments/StudentAssignmentsPanel";
 
 interface Props {
   parent: Parent;
@@ -246,6 +247,31 @@ const ParentViewModal: React.FC<Props> = ({ parent, onClose, onEdit }) => {
             )}
           </div>
         </div>
+
+        {/* ── Assignments, one group per child ── */}
+        {students.length > 0 && (
+          <div className="px-6 pb-5">
+            <div className="border-t border-gray-100 pt-5">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                <ClipboardList className="w-3.5 h-3.5" />
+                Assignments
+              </h3>
+              <div className="divide-y divide-gray-100">
+                {students.map((child) => (
+                  <div key={child.id} className="pt-3">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {child.full_name}
+                      {child.student_class_display && (
+                        <span className="font-normal text-gray-500"> · {child.student_class_display}</span>
+                      )}
+                    </p>
+                    <StudentAssignmentsPanel studentId={child.id} limit={2} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Footer ── */}
         <div className="px-6 pb-5">
