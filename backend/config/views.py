@@ -6,11 +6,7 @@ from django.views.decorators.http import require_http_methods
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from allauth.account.models import EmailAddress
-from django.core.management import call_command  # ← Add this
 import json
-import io  # ← Add this
-import sys  # ← Add this
-import os
 
 User = get_user_model()
 
@@ -99,70 +95,5 @@ def debug_login_function(request):
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-@csrf_exempt
-def check_database_schema(request):
-    """Check database schema - REMOVE AFTER USE"""
-
-    secret = request.GET.get("secret", "")
-    if secret != "migrate_now_2025":
-        return JsonResponse({"error": "Unauthorized"}, status=403)
-
-    try:
-        from django.db import connection
-
-        with connection.cursor() as cursor:
-            # Check if column exists
-            cursor.execute(
-                """
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name='classroom_classroom' 
-                AND column_name='academic_session_id';
-            """
-            )
-            result = cursor.fetchone()
-
-            # Get all columns in classroom_classroom
-            cursor.execute(
-                """
-                SELECT column_name, data_type 
-                FROM information_schema.columns 
-                WHERE table_name='classroom_classroom'
-                ORDER BY ordinal_position;
-            """
-            )
-            all_columns = cursor.fetchall()
-
-        return JsonResponse(
-            {
-                "status": "success",
-                "academic_session_id_exists": result is not None,
-                "all_columns": [
-                    {"name": col[0], "type": col[1]} for col in all_columns
-                ],
-            }
-        )
-    except Exception as e:
-        return JsonResponse({"status": "error", "error": str(e)}, status=500)
-
-
-@csrf_exempt
-def force_migrate(request):
-    # Optional: restrict access to only your secret key (for safety)
-    secret = request.GET.get("secret")
-    allowed_secret = os.getenv("FORCE_MIGRATE_SECRET", "mysecuretoken123")
-
-    if secret != allowed_secret:
-        return JsonResponse({"error": "Unauthorized"}, status=401)
-
-    try:
-        call_command("migrate", interactive=False)
-        return JsonResponse(
-            {"status": "success", "message": "Migrations applied successfully"}
-        )
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)

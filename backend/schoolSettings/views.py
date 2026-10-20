@@ -4,11 +4,9 @@ from rest_framework.decorators import (
     permission_classes,
     parser_classes,
     action,
-    authentication_classes,
 )
 from django.contrib.auth import get_user_model
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
-from django.core.management import call_command
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -1783,17 +1781,6 @@ class UserRoleViewSet(viewsets.ModelViewSet):
                 {"error": f"Failed to assign roles: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
-@api_view(["GET"])
-@authentication_classes([])  # Disable any default authentication
-@permission_classes([AllowAny])  # Public access
-def force_migrate(request):
-    try:
-        call_command("migrate", interactive=False)
-        return Response({"status": "Migrations applied successfully ✅"})
-    except Exception as e:
-        return Response({"error": str(e)})
 
 
 class SchoolAnnouncementViewSet(viewsets.ModelViewSet):
