@@ -67,3 +67,84 @@ def render(submission, parent_user):
         school,
     ]
     return f"{first}'s {assignment.title} has been marked", "\n".join(lines)
+
+
+# ── In-app (the notification bell) ────────────────────────────────────────────
+
+def _due(assignment):
+    return assignment.due_date.strftime("%a %d %b").replace(" 0", " ")
+
+
+def assignments_page(user):
+    """Where a bell line about an assignment opens: a student's Assignments section."""
+    from inbox.notify import dashboard_for
+
+    if (getattr(user, "role", "") or "").lower() == "student":
+        return "/student/dashboard?section=assignments"
+    return dashboard_for(user)
+
+
+def bell_new_assignment(assignment):
+    """Each pupil in the class, and their parents, get a line in their bell."""
+    from inbox.models import NotificationKind
+    from inbox.notify import notify
+
+    from .access import class_roster
+
+    subject = assignment.subject.name if assignment.subject_id else "General"
+    pupils = list(class_roster(assignment.classroom))
+    notify(
+        [p.user for p in pupils],
+        tenant=assignment.tenant, kind=NotificationKind.ASSIGNMENT_SET,
+        title=f"New assignment: {assignment.title}",
+        body=f"{subject} · due {_due(assignment)}",
+        link=assignments_page,
+    )
+    for pupil in pupils:
+        notify(
+            [user for _, user in parents_of(pupil)],
+            tenant=assignment.tenant, kind=NotificationKind.ASSIGNMENT_SET,
+            title=f"New assignment for {display_name(pupil.user).split()[0]}: {assignment.title}",
+            body=f"{subject} · due {_due(assignment)}",
+            link=assignments_page,
+        )
+
+
+def bell_marked(submission):
+    """The pupil and their parents see the mark in their bell."""
+    from inbox.models import NotificationKind
+    from inbox.notify import notify
+
+    assignment = submission.assignment
+    mark = f"Grade: {submission.grade}" if submission.grade else "Your teacher left feedback."
+    student = submission.student
+    notify(
+        [student.user], tenant=submission.tenant, kind=NotificationKind.ASSIGNMENT_MARKED,
+        title=f"{assignment.title} has been marked", body=mark, link=assignments_page,
+    )
+    notify(
+        [user for _, user in parents_of(student)],
+        tenant=submission.tenant, kind=NotificationKind.ASSIGNMENT_MARKED,
+        title=f"{display_name(student.user).split()[0]}'s {assignment.title} has been marked",
+        body=mark.replace("Your teacher", "The teacher"), link=assignments_page,
+    )
+
+
+def bell_handed_in(submission):
+    """The teacher who set the assignment hears that a pupil handed it in."""
+    from inbox.models import NotificationKind
+    from inbox.notify import notify
+
+    assignment = submission.assignment
+    teacher = assignment.teacher
+    if teacher is None or teacher.user_id is None:
+        return
+    student = submission.student
+    by_parent = submission.submitted_by_id not in (None, student.user_id)
+    notes = (["Late"] if submission.is_late else []) + (["handed in by a parent"] if by_parent else [])
+    notify(
+        [teacher.user], tenant=submission.tenant, kind=NotificationKind.ASSIGNMENT_HANDED_IN,
+        title=f"{display_name(student.user)} handed in {assignment.title}",
+        body=", ".join(notes).capitalize(),
+        link="/teacher/assignments",
+    )

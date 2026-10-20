@@ -183,6 +183,7 @@ INSTALLED_APPS = [
     "cbt",
     "result",
     "assignment",
+    "inbox",
     "notice",
     "fee",
     "parent",

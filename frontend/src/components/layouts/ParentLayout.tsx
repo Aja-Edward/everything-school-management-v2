@@ -11,7 +11,6 @@ import {
   LogOut,
   Menu,
   X,
-  Bell,
   ChevronDown,
   Home,
   Award,
@@ -19,6 +18,7 @@ import {
   Users,
   BookOpen
 } from 'lucide-react';
+import NotificationBell from '@/components/common/NotificationBell';
 import { useGlobalTheme } from '@/contexts/GlobalThemeContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { getAbsoluteUrl } from '@/utils/urlUtils';
@@ -188,11 +188,10 @@ const ParentLayout: React.FC<ParentLayoutProps> = ({ children }) => {
                 </button>
 
                 {/* Notifications */}
-                <button
-                  className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors duration-200 relative"
-                >
-                  <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                </button>
+                <NotificationBell
+                  buttonClassName="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors duration-200 relative"
+                  iconClassName="w-5 h-5 text-slate-600 dark:text-slate-300"
+                />
 
                 {/* User Menu */}
                 <div className="relative">

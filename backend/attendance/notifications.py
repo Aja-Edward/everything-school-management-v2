@@ -244,9 +244,17 @@ def _queue_one(*, tenant, outcome, student, parent, channel_name, subject, body)
     if not created:
         return None
 
-    # In-app needs no provider call; it is delivered the moment it is stored.
+    # In-app needs no provider call; it is delivered the moment it is stored,
+    # and it is what shows in the parent's notification bell.
     if created and channel_name == NotificationChannel.IN_APP and destination:
         row.mark_sent(provider="in_app")
+        from inbox.models import NotificationKind
+        from inbox.notify import notify
+
+        notify(
+            [parent.user], tenant=tenant, kind=NotificationKind.GATE_SCAN,
+            title=subject or "Gate update", body=body, link="/parent/dashboard",
+        )
         return None
 
     if row.status == NotificationStatus.SKIPPED:

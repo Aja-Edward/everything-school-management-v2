@@ -28,6 +28,7 @@ from .access import (
     subjects_for,
 )
 from .models import Assignment, AssignmentSubmission
+from .notifications import bell_handed_in, bell_marked, bell_new_assignment
 from .serializers import AssignmentSerializer, GradeSerializer, SubmissionSerializer
 from .tasks import notify_parents_of_mark
 
@@ -191,9 +192,11 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         _, teacher = self.viewer()
-        serializer.save(
+        assignment = serializer.save(
             tenant=self.request.tenant, teacher=teacher, created_by=self.request.user
         )
+        # Bells now; the email waits for the parents' daily digest.
+        bell_new_assignment(assignment)
 
     def perform_destroy(self, instance):
         public_ids = [instance.attachment_public_id]
@@ -297,6 +300,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         except IntegrityError:
             # Another tab handed in first.
             raise ValidationError({"detail": "This work was just handed in. Refresh to see it."})
+        if existing is None:
+            # First hand-in only; changes to it don't ping the teacher again.
+            bell_handed_in(submission)
         return Response(
             SubmissionSerializer(submission).data,
             status=status.HTTP_201_CREATED if existing is None else status.HTTP_200_OK,
@@ -385,8 +391,10 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         submission.save(update_fields=["grade", "feedback", "graded_by", "graded_at"])
 
         if submission.is_graded and not was_marked:
-            # Newly marked, not a correction to a mark: tell the parents,
-            # once the save has committed and off the request.
+            # Newly marked, not a correction to a mark: tell the pupil and
+            # parents in their bells, and email the parents once the save
+            # has committed and off the request.
+            bell_marked(submission)
             transaction.on_commit(
                 lambda: dispatch_task(notify_parents_of_mark, submission_id=submission.id)
             )

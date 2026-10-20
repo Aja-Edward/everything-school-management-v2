@@ -50,6 +50,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { getAbsoluteUrl } from '@/utils/urlUtils';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/hooks/useAuth';
+import NotificationBell from '@/components/common/NotificationBell';
 
 interface AdminDashboardProps {
   dashboardStats: DashboardStats | null;
@@ -369,7 +370,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <h1 className="text-sm font-semibold text-gray-900">
               {settings?.school_name || 'Admin Portal'}
             </h1>
-            <div className="w-9" />
+            <NotificationBell
+              buttonClassName="relative p-2 hover:bg-gray-100 rounded-lg"
+              iconClassName="w-5 h-5 text-gray-600"
+            />
+          </header>
+
+          {/* Desktop Header */}
+          <header className="hidden md:flex h-12 shrink-0 bg-white border-b border-gray-200 items-center justify-end px-6">
+            <NotificationBell
+              buttonClassName="relative p-2 hover:bg-gray-100 rounded-lg"
+              iconClassName="w-5 h-5 text-gray-600"
+            />
           </header>
 
           {/* Page Content */}

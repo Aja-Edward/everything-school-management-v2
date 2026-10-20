@@ -1810,7 +1810,22 @@ class SchoolAnnouncementViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         tenant = self._get_tenant(self.request)
         # ✅ Scope new announcements to the current tenant
-        serializer.save(created_by=self.request.user, tenant=tenant)
+        announcement = serializer.save(created_by=self.request.user, tenant=tenant)
+        if announcement.is_active:
+            self._ring_bells(announcement)
+
+    def _ring_bells(self, announcement):
+        """Everyone the announcement is for, except whoever posted it, sees it in their bell."""
+        from inbox.models import NotificationKind
+        from inbox.notify import dashboard_for, notify, users_in_audience
+
+        audience = users_in_audience(announcement.tenant, announcement.target_audience)
+        notify(
+            audience.exclude(pk=announcement.created_by_id).iterator(),
+            tenant=announcement.tenant, kind=NotificationKind.ANNOUNCEMENT,
+            title=announcement.title, body=announcement.content[:300],
+            link=dashboard_for,
+        )
 
     def get_queryset(self):
         tenant = self._get_tenant(self.request)

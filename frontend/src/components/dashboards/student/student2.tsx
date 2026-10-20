@@ -22,7 +22,8 @@ import StudentAssignments from './StudentAssignments';
 import { useAuth } from '@/hooks/useAuth';
 import { useSettings } from '@/hooks/useSettings';
 import api from '@/services/api';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import NotificationBell from '@/components/common/NotificationBell';
 
 interface TokenVerificationData {
   is_valid: boolean;
@@ -67,6 +68,12 @@ const StudentPortal = () => {
   const [activeSection, setActiveSection] = useState(
     () => new URLSearchParams(window.location.search).get('section') || 'dashboard'
   );
+  // ...and so can a notification clicked while the portal is already open.
+  const { search } = useLocation();
+  useEffect(() => {
+    const section = new URLSearchParams(search).get('section');
+    if (section) setActiveSection(section);
+  }, [search]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Portal authentication flow states
@@ -276,6 +283,10 @@ const StudentPortal = () => {
 
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
+              <NotificationBell
+                buttonClassName="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                iconClassName="w-5 h-5 text-gray-700 dark:text-gray-300"
+              />
               <button
                 onClick={handleGoHome}
                 className="hidden sm:flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors font-medium text-sm"

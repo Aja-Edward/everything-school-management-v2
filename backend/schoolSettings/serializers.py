@@ -111,7 +111,10 @@ class SchoolAnnouncementSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        # created_by is whoever is signed in (the view sets it). Writable, it
+        # was required of a form that never sends it, so no announcement
+        # could be posted, and it would have let a request claim another poster.
+        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
 
 class GeneralSettingsUpdateSerializer(serializers.Serializer):
