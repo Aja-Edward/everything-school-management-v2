@@ -374,9 +374,17 @@ const MessageManagement: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${MessageService.getStatusColor(message.status)}`}>
+                      <span
+                        title={MessageService.failureReason(message) || undefined}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${MessageService.getStatusColor(message.status)}`}
+                      >
                         {message.status_display}
                       </span>
+                      {MessageService.failureReason(message) && (
+                        <div className="mt-1 text-xs text-red-600 dark:text-red-400 whitespace-normal max-w-xs">
+                          {MessageService.failureReason(message)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
                       {MessageService.formatDate(message.created_at)}
@@ -749,6 +757,13 @@ const MessageManagement: React.FC = () => {
                   </span>
                 </div>
               </div>
+
+              {MessageService.failureReason(selectedMessage) && (
+                <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 p-3">
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Why the email failed</p>
+                  <p className="text-sm text-red-700 dark:text-red-300 mt-1">{MessageService.failureReason(selectedMessage)}</p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

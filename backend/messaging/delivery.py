@@ -68,10 +68,11 @@ def bulk_recipients(bulk):
     return users.filter(wanted)
 
 
-def deliver(messages, tenant):
+def deliver(messages, tenant, bulk=None):
     """
     Mark the messages sent, ring each recipient's bell, and queue the email
-    ones. `messages` are saved Message rows from one sender.
+    ones. `messages` are saved Message rows from one sender; `bulk` is the
+    BulkMessage they were made from, whose counts the email task settles.
     """
     messages = list(messages)
     if not messages:
@@ -95,7 +96,8 @@ def deliver(messages, tenant):
 
     email_ids = [m.pk for m in messages if m.message_type == "email"]
     if email_ids:
-        transaction.on_commit(lambda: dispatch_task(_email_task(), message_ids=email_ids))
+        extra = {"bulk_id": bulk.pk} if bulk is not None else {}
+        transaction.on_commit(lambda: dispatch_task(_email_task(), message_ids=email_ids, **extra))
 
 
 def _email_task():

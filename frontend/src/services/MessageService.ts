@@ -290,6 +290,29 @@ class MessageService {
     }
   }
 
+  // Why a failed email didn't go out, in words a school admin can act on.
+  // delivery_status holds the provider's raw answer, e.g.
+  // 'Brevo returned 401: {"message":"Key not found","code":"unauthorized"}'.
+  failureReason(message: Pick<Message, 'status' | 'delivery_status'>): string | null {
+    if (message.status !== 'failed') return null;
+    const raw = (message.delivery_status || '').trim();
+    if (!raw) return 'The email could not be sent.';
+    const match = raw.match(/^Brevo returned (\d{3}):\s*(.*)$/s);
+    if (!match) return raw;
+    const code = Number(match[1]);
+    let detail = match[2];
+    try {
+      detail = JSON.parse(detail).message || detail;
+    } catch {
+      // Not JSON; show the text as it came.
+    }
+    if (code === 401) return `The email service rejected the sending key, so no email went out (${detail}).`;
+    if (code === 402) return `The email service account has run out of credits (${detail}).`;
+    if (code === 400) return `The email service refused this email (${detail}).`;
+    if (code >= 500) return `The email service was having problems; try again later (${detail}).`;
+    return `The email service returned an error ${code} (${detail}).`;
+  }
+
   getMessageTypeIcon(messageType: string): string {
     switch (messageType) {
       case 'email': return '📧';

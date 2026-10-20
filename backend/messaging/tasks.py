@@ -9,10 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
-def email_messages(message_ids):
+def email_messages(message_ids, bulk_id=None):
     """
     Email each message to its recipient, through the school's own email
     settings (utils.notifications), and record how it went on the message.
+    For a bulk send, also settle the bulk message's delivered and failed
+    counts, which until now only said how many were queued.
     """
     from .models import Message
 
@@ -41,4 +43,24 @@ def email_messages(message_ids):
             logger.warning("Email for message %s not sent: %s", message.pk, result.error)
             message.status, message.delivery_status = "failed", result.error[:1000]
             message.save(update_fields=["status", "delivery_status"])
+    if bulk_id is not None:
+        settle_bulk(bulk_id, message_ids)
     return sent
+
+
+def settle_bulk(bulk_id, message_ids):
+    """Count how a bulk email's messages went, and mark the bulk failed if none got through."""
+    from .models import BulkMessage, Message
+
+    outcomes = Message.objects.filter(pk__in=message_ids)
+    delivered = outcomes.filter(status="delivered").count()
+    failed = outcomes.filter(status="failed").count()
+    # 'sent' stays for a mix of the two: the counts say how many failed.
+    if failed and not delivered:
+        status = "failed"
+    elif delivered and not failed:
+        status = "delivered"
+    else:
+        status = "sent"
+    BulkMessage.objects.filter(pk=bulk_id).update(
+        delivered_count=delivered, failed_count=failed, status=status)

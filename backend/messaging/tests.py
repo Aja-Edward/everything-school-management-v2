@@ -195,3 +195,46 @@ class BulkMessageTest(MessagingTestCase):
 
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Message.objects.count(), 4)
+
+    @patch("messaging.delivery.dispatch_task")
+    def send_bulk_email(self, results, dispatch):
+        """Send a bulk email to the four teachers, then run the email task with Brevo answering `results`."""
+        self.as_user(self.school.admin)
+        created = self.create(message_type="email")
+        with self.captureOnCommitCallbacks(execute=True):
+            sent = self.post(f"bulk-messages/{created.data['id']}/send_now/", {})
+        self.assertEqual(sent.data["sent_count"], 4)
+        kwargs = dispatch.call_args.kwargs
+        self.assertEqual(kwargs["bulk_id"], created.data["id"])
+        with patch("messaging.tasks.channels.send", side_effect=results):
+            email_messages(**kwargs)
+        return BulkMessage.objects.get(pk=created.data["id"])
+
+    def test_bulk_email_that_all_failed_says_so(self):
+        failure = SendResult.failure("brevo", 'Brevo returned 401: {"message":"Key not found"}')
+        bulk = self.send_bulk_email([failure] * 4)
+
+        self.assertEqual((bulk.status, bulk.delivered_count, bulk.failed_count), ("failed", 0, 4))
+        self.assertTrue(all("Key not found" in m.delivery_status for m in Message.objects.all()))
+
+    def test_bulk_email_that_all_arrived_says_so(self):
+        bulk = self.send_bulk_email([SendResult.success("brevo", f"m-{i}") for i in range(4)])
+
+        self.assertEqual((bulk.status, bulk.delivered_count, bulk.failed_count), ("delivered", 4, 0))
+
+    def test_bulk_email_partly_failed_counts_both(self):
+        bulk = self.send_bulk_email(
+            [SendResult.success("brevo", "m-1"), SendResult.failure("brevo", "Brevo returned 500")] * 2)
+
+        self.assertEqual((bulk.status, bulk.delivered_count, bulk.failed_count), ("sent", 2, 2))
+
+    @patch("messaging.delivery.dispatch_task")
+    def test_in_app_bulk_keeps_its_counts(self, dispatch):
+        self.as_user(self.school.admin)
+        created = self.create()
+        with self.captureOnCommitCallbacks(execute=True):
+            sent = self.post(f"bulk-messages/{created.data['id']}/send_now/", {})
+
+        dispatch.assert_not_called()
+        bulk = BulkMessage.objects.get(pk=created.data["id"])
+        self.assertEqual((bulk.status, bulk.sent_count, bulk.delivered_count, bulk.failed_count), ("sent", 4, 0, 0))

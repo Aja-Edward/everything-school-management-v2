@@ -15,6 +15,9 @@ const inputClass =
   'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 ' +
   'text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none';
 
+// Sent bulks: 'sent' when queued, then 'delivered' or 'failed' once every email's result is known.
+const wasSent = (b: BulkMessage) => ['sent', 'delivered', 'failed'].includes(b.status);
+
 /**
  * An admin's message to whole groups in the school. Each recipient gets it in
  * their Messages inbox and their notification bell, and by email if chosen.
@@ -132,13 +135,13 @@ const BulkMessagesPanel: React.FC = () => {
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Sent bulk messages</h3>
         {history === null ? (
           <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-        ) : history.filter((b) => b.status === 'sent').length === 0 ? (
+        ) : history.filter(wasSent).length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
             <Users className="w-4 h-4" /> None yet.
           </p>
         ) : (
           <ul className="divide-y divide-gray-100 dark:divide-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg">
-            {history.filter((b) => b.status === 'sent').map((b) => (
+            {history.filter(wasSent).map((b) => (
               <li key={b.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white break-words">{b.subject}</p>
@@ -148,6 +151,23 @@ const BulkMessagesPanel: React.FC = () => {
                 </div>
                 <div className="text-right text-xs text-gray-500 dark:text-gray-400">
                   <p className="font-medium text-gray-700 dark:text-gray-300">{b.sent_count} recipients</p>
+                  {b.message_type === 'email' && (
+                    b.delivered_count + b.failed_count === 0 ? (
+                      <p>Emails sending…</p>
+                    ) : (
+                      <p>
+                        {b.delivered_count} emailed
+                        {b.failed_count > 0 && (
+                          <span
+                            className="text-red-600 dark:text-red-400 font-medium"
+                            title="Open one of these messages in Sent to see why"
+                          >
+                            {' '}· {b.failed_count} failed
+                          </span>
+                        )}
+                      </p>
+                    )
+                  )}
                   {b.sent_at && <p>{MessageService.formatDate(b.sent_at)}</p>}
                 </div>
               </li>

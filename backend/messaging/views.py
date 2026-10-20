@@ -268,7 +268,7 @@ class BulkMessageViewSet(TenantFilterMixin, viewsets.ModelViewSet):
                 )
                 for user in recipients
             ], batch_size=500)
-            deliver(messages, tenant)
+            deliver(messages, tenant, bulk=bulk_message)
 
             bulk_message.status = 'sent'
             bulk_message.sent_at = timezone.now()
