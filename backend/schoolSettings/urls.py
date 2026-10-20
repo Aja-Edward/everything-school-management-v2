@@ -1,8 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import force_migrate
-from .views import force_migrate, update_user_role
+from .views import update_user_role
 
 app_name = "schoolSettings"
 
@@ -63,7 +62,6 @@ urlpatterns = [
     path("notifications/twilio/send-test/", views.send_test_sms, name="send-test-sms"),
     # Include router URLs
     path("", include(router.urls)),
-    path("force-migrate/", force_migrate, name="force_migrate"),
 
     # Landing page endpoints
     path("landing/", views.LandingPageView.as_view(), name="landing-page"),

@@ -8,8 +8,6 @@ from .sitemaps import sitemap_view, robots_txt_view
 from .views import api_root, debug_login_function
 from authentication.views import GoogleLogin
 from .health import health_check
-from .views import force_migrate
-from .views import force_migrate, check_database_schema
 from authentication.views import create_first_superuser
 
 
@@ -107,9 +105,6 @@ urlpatterns = [
     path("api/tenants/", include("tenants.urls")),
     # ===== UTILITIES =====
     path("api/utils/", include("utils.urls")),
-    path("admin/force-migrate/", force_migrate),
-    path("api/force-migrate/", force_migrate),
-    path("api/check-schema/", check_database_schema),
     path("api/auth/setup-admin/", create_first_superuser, name="setup_admin"),
 ]
 

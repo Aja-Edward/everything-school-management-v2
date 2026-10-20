@@ -164,8 +164,6 @@ def is_public_path(path):
         "/api/auth/",
         "/admin/",
         "/health/",
-        "/api/force-migrate/",
-        "/api/check-schema/",
         "/api/platform/",
         "/sitemap.xml",
         "/robots.txt",
