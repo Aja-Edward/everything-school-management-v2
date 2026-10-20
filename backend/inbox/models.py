@@ -10,6 +10,7 @@ class NotificationKind(models.TextChoices):
     ASSIGNMENT_MARKED = "assignment_marked", "Assignment marked"
     ANNOUNCEMENT = "announcement", "Announcement"
     GATE_SCAN = "gate_scan", "Arrival or departure"
+    MESSAGE = "message", "Message"
 
 
 class Notification(TenantMixin, models.Model):
