@@ -1804,14 +1804,16 @@ class SchoolAnnouncementViewSet(viewsets.ModelViewSet):
     def _ring_bells(self, announcement):
         """Everyone the announcement is for, except whoever posted it, sees it in their bell."""
         from inbox.models import NotificationKind
-        from inbox.notify import dashboard_for, notify, users_in_audience
+        from inbox.notify import notify, users_in_audience
 
         audience = users_in_audience(announcement.tenant, announcement.target_audience)
+        # The bell opens an announcement in full, so it keeps all of it and
+        # links nowhere. It used to keep 300 characters and link to the
+        # person's own dashboard, so clicking it showed them nothing new.
         notify(
             audience.exclude(pk=announcement.created_by_id).iterator(),
             tenant=announcement.tenant, kind=NotificationKind.ANNOUNCEMENT,
-            title=announcement.title, body=announcement.content[:300],
-            link=dashboard_for,
+            title=announcement.title, body=announcement.content,
         )
 
     def get_queryset(self):

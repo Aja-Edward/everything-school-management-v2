@@ -194,6 +194,15 @@ class AnnouncementBellTest(BellTestCase):
         self.assertEqual(self.titles_for(s.maths_teacher.user), [])
         self.assertEqual(self.titles_for(self.other.admin), [])  # another school's
 
+    def test_the_bell_keeps_the_whole_announcement_and_opens_it_in_place(self):
+        long_content = " ".join(["Bring your PE kit."] * 40)  # well past the old 300-character cut
+
+        self.post("teachers", content=long_content)
+
+        line = Notification.objects.get(recipient=self.school.maths_teacher.user)
+        self.assertEqual(line.body, long_content)
+        self.assertEqual(line.link, "")
+
     def test_inactive_announcement_rings_nobody(self):
         self.post("all", is_active=False)
 

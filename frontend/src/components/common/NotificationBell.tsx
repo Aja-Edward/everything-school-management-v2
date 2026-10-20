@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Bell, CheckCheck, ClipboardCheck, ClipboardList, DoorOpen, Inbox, Loader2, Megaphone, Send,
+  ArrowLeft, Bell, CheckCheck, ClipboardCheck, ClipboardList, DoorOpen, Inbox, Loader2, Megaphone, Send,
 } from 'lucide-react';
 import InboxService, { InboxNotification, NotificationKind, timeAgo } from '@/services/InboxService';
 
@@ -24,7 +24,8 @@ interface NotificationBellProps {
 
 /**
  * The bell in every role's header: an unread badge, and a dropdown of the
- * latest notifications. Opening one marks it read and goes to its page.
+ * latest notifications. Opening one marks it read and goes to its page, or,
+ * for one with no page (an announcement), shows it in full here.
  */
 const NotificationBell: React.FC<NotificationBellProps> = ({
   buttonClassName = 'relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800',
@@ -35,6 +36,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<InboxNotification[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // The notification being read in full, for those with no page of their own.
+  const [reading, setReading] = useState<InboxNotification | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const refreshCount = useCallback(() => {
@@ -64,19 +67,25 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
   }, []);
 
   const toggle = () => {
+    setReading(null);
     setOpen((was) => {
       if (!was) load();
       return !was;
     });
   };
 
+  const close = () => {
+    setOpen(false);
+    setReading(null);
+  };
+
   // Close on a click outside or Escape.
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) close();
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -91,10 +100,15 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
       setUnread((n) => Math.max(0, n - 1));
       InboxService.markRead(item.id).catch(() => refreshCount());
     }
-    if (item.link) {
-      setOpen(false);
-      navigate(item.link);
+    // An announcement has no page of its own: it opens here, in full. Ones
+    // already in people's bells still link to their dashboard, which only
+    // reloaded the page they were on, so go by kind rather than link.
+    if (item.kind === 'announcement' || !item.link) {
+      setReading(item);
+      return;
     }
+    close();
+    navigate(item.link);
   };
 
   const markAll = async () => {
@@ -136,7 +150,26 @@ const NotificationBell: React.FC<NotificationBellProps> = ({
           </div>
 
           <div className="max-h-[70vh] sm:max-h-96 overflow-y-auto">
-            {failed ? (
+            {reading ? (
+              <div className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setReading(null)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" /> All notifications
+                </button>
+                <h3 className="mt-3 text-sm font-semibold text-gray-900 dark:text-white break-words">
+                  {reading.title}
+                </h3>
+                <p className="text-[11px] text-gray-400 mt-1">{timeAgo(reading.created_at)}</p>
+                {reading.body && (
+                  <p className="mt-3 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
+                    {reading.body}
+                  </p>
+                )}
+              </div>
+            ) : failed ? (
               <p className="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">
                 Notifications could not be loaded.{' '}
                 <button type="button" onClick={load} className="underline">Try again</button>
