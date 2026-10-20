@@ -95,8 +95,9 @@ class Event(TenantMixin, models.Model):
         return True
     
     def activate(self):
-        """Activate this event and deactivate all others"""
-        Event.objects.update(is_active=False)
+        """Activate this event and deactivate this school's others"""
+        # This used to switch off every school's events on the platform.
+        Event.objects.filter(tenant_id=self.tenant_id).exclude(pk=self.pk).update(is_active=False)
         self.is_active = True
         self.save()
     

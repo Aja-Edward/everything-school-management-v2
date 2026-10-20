@@ -6,7 +6,7 @@ from django.db import transaction
 from .models import Event, EventImage
 from .serializers import (
     EventSerializer, EventCreateSerializer, EventUpdateSerializer,
-    EventImageUpdateSerializer, EventActivationSerializer, ActiveEventSerializer
+    EventImageSerializer, EventImageUpdateSerializer, EventActivationSerializer, ActiveEventSerializer
 )
 
 
@@ -31,6 +31,9 @@ class EventViewSet(viewsets.ModelViewSet):
         return EventSerializer
     
     def get_queryset(self):
+        return self._filter_by_params(self._visible_events())
+
+    def _visible_events(self):
         tenant = getattr(self.request, 'tenant', None)
 
         if self.request.user.is_superuser:
@@ -51,6 +54,22 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return Event.objects.none()
 
+    def _filter_by_params(self, queryset):
+        """
+        The school's site asks for ?is_active=true&is_published=true. The
+        filters were ignored, so a signed-in visitor saw inactive events too.
+        """
+        if self.action != 'list':
+            return queryset
+        params = self.request.query_params
+        for flag in ('is_active', 'is_published'):
+            value = params.get(flag)
+            if value is not None:
+                queryset = queryset.filter(**{flag: value.lower() == 'true'})
+        if params.get('display_type'):
+            queryset = queryset.filter(display_type=params['display_type'])
+        return queryset
+
     def perform_create(self, serializer):
         """Inject created_by and tenant so neither can ever be null."""
         tenant = getattr(self.request, 'tenant', None)
@@ -62,15 +81,20 @@ class EventViewSet(viewsets.ModelViewSet):
         Get the currently active event for public display.
         This endpoint is accessible without authentication.
         """
-        try:
-            active_event = Event.objects.get(is_active=True, is_published=True)
-            serializer = ActiveEventSerializer(active_event, context={'request': request})
-            return Response(serializer.data)
-        except Event.DoesNotExist:
+        # This looked across every school, so it showed another school's event
+        # or failed outright once two schools had one active.
+        tenant = getattr(request, 'tenant', None)
+        active_event = (
+            Event.objects.filter(tenant=tenant, is_active=True, is_published=True).first()
+            if tenant else None
+        )
+        if active_event is None:
             return Response(
                 {'message': 'No active event found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        serializer = ActiveEventSerializer(active_event, context={'request': request})
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -134,7 +158,8 @@ class EventViewSet(viewsets.ModelViewSet):
         """
         Get all published events.
         """
-        events = Event.objects.filter(is_published=True)
+        # Every school's published events used to come back here.
+        events = self.get_queryset().filter(is_published=True)
         serializer = self.get_serializer(events, many=True)
         return Response(serializer.data)
     
@@ -220,18 +245,32 @@ class EventImageViewSet(viewsets.ModelViewSet):
     serializer_class = EventImageUpdateSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_serializer_class(self):
+        # The update serializer has no image field, so an upload saved no file.
+        if self.action == 'create':
+            return EventImageSerializer
+        return EventImageUpdateSerializer
+
+    def _school_events(self):
+        tenant = getattr(self.request, 'tenant', None)
+        if self.request.user.is_superuser:
+            return Event.objects.all()
+        return Event.objects.filter(tenant=tenant) if tenant else Event.objects.none()
+
     def get_queryset(self):
         """Filter images by event and user permissions"""
         event_id = self.request.query_params.get('event_id')
         if event_id:
-            return EventImage.objects.filter(event_id=event_id)
+            return EventImage.objects.filter(event_id=event_id, event__in=self._school_events())
         return EventImage.objects.none()
 
     def perform_create(self, serializer):
         """Set the event when creating an image"""
-        event_id = self.request.data.get('event_id')
+        # The settings screen sends the event as "event"; only "event_id" was
+        # read, so an image added while editing an event was refused.
+        event_id = self.request.data.get('event_id') or self.request.data.get('event')
         if event_id:
-            event = get_object_or_404(Event, id=event_id)
-            serializer.save(event=event)
+            event = get_object_or_404(self._school_events(), id=event_id)
+            serializer.save(event=event, tenant=event.tenant)
         else:
             raise serializers.ValidationError("event_id is required")
