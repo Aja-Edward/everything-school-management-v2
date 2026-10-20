@@ -4,8 +4,7 @@
 set -e
 pip install -r requirements.txt
 python manage.py migrate
-python manage.py fix_component_score_table
-python manage.py seed_activity_categories || true
-python manage.py seed_appraisal_criteria || true
 python manage.py collectstatic --noinput
-
+python manage.py seed_activity_categories
+python manage.py seed_appraisal_criteria
+python manage.py seed_tenant_defaults
