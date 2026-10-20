@@ -187,3 +187,35 @@ class EventImageStorageTests(APITestCase):
 
         with override_settings(DEBUG=False):
             self.assertIsInstance(event_image_storage(), MediaCloudinaryStorage)
+
+
+class ReplaceEventImageTest(EventTestBase):
+    """
+    "Change Image" adds the new picture, then removes the old ones with
+    DELETE /event-images/<id>/?event_id=<event>, so the site shows the new one.
+    """
+
+    def test_an_admin_can_remove_an_old_picture(self):
+        from events.models import EventImage
+
+        event = self._event(self.school, self.admin)
+        old = EventImage.objects.create(event=event, tenant=self.school, image="event_images/old.jpg")
+
+        response = self.call(
+            "delete", f"/api/events/event-images/{old.id}/?event_id={event.id}", user=self.admin,
+        )
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(EventImage.objects.filter(pk=old.pk).exists())
+
+    def test_another_schools_admin_cannot(self):
+        from events.models import EventImage
+
+        event = self._event(self.school, self.admin)
+        old = EventImage.objects.create(event=event, tenant=self.school, image="event_images/old.jpg")
+
+        response = self.call(
+            "delete", f"/api/events/event-images/{old.id}/?event_id={event.id}",
+            user=self.other_admin, school=self.other_school,
+        )
+        self.assertEqual(response.status_code, 404, response.content)
+        self.assertTrue(EventImage.objects.filter(pk=old.pk).exists())

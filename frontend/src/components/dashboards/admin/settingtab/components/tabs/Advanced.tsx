@@ -817,10 +817,7 @@ import {
   Image as ImageIcon, Radio, LayoutTemplate,
   Zap, Bell
 } from 'lucide-react';
-import api, { API_BASE_URL } from '@/services/api';
-
-const csrfToken = () =>
-  document.cookie.split('; ').find(r => r.startsWith('csrftoken='))?.split('=')[1] ?? '';
+import api, { API_BASE_URL, buildUploadHeaders } from '@/services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1054,14 +1051,28 @@ const EventForm: React.FC<{
           is_published:     form.is_published,
         });
         // Upload image separately if provided (not applicable for ribbon, but guard anyway)
+        // "Change Image" replaces the picture. It used to add another one
+        // behind the old, and the site shows the first, so a new picture
+        // never appeared. A failed upload was also ignored.
         if (imageFile && !isRibbon) {
           const fd = new FormData();
           fd.append('event', String(initial!.id));
           fd.append('image', imageFile);
-          await fetch(`${API_BASE_URL}/events/event-images/`, {
+          const up = await fetch(`${API_BASE_URL}/events/event-images/`, {
             method: 'POST', body: fd, credentials: 'include',
-            headers: { 'X-CSRFToken': csrfToken() },
+            headers: await buildUploadHeaders(),
           });
+          if (!up.ok) {
+            const d = await up.json().catch(() => ({}));
+            throw new Error(`The image didn't upload: ${JSON.stringify(d)}`);
+          }
+          const added = await up.json().catch(() => null);
+          const current: EventItem = await api.get(`/events/events/${initial!.id}/`);
+          const old = (current?.images ?? []).filter(img => img.id !== added?.id);
+          await Promise.all(old.map(img =>
+            api.delete(`/events/event-images/${img.id}/?event_id=${initial!.id}`).catch(() => {})
+          ));
+          result = await api.get(`/events/events/${initial!.id}/`);
         }
       } else {
         // POST via FormData to support image upload.
@@ -1078,7 +1089,7 @@ const EventForm: React.FC<{
         if (imageFile && !isRibbon) fd.append('images', imageFile);
         const res = await fetch(`${API_BASE_URL}/events/events/`, {
           method: 'POST', body: fd, credentials: 'include',
-          headers: { 'X-CSRFToken': csrfToken() },
+          headers: await buildUploadHeaders(),
         });
         if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(JSON.stringify(d)); }
         result = await res.json();
