@@ -48,13 +48,29 @@ class EventSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class EventCreateSerializer(serializers.ModelSerializer):
+class _RespondWithFullEvent:
+    """
+    Answer a create or edit with the whole event, as the list shows it.
+
+    The write serializers' own fields have no id, is_active or is_published,
+    so the settings screen merged a reply without them and kept showing the
+    event as it was.
+    """
+
+    def to_representation(self, instance):
+        return EventSerializer(instance, context=self.context).data
+
+
+# is_active and is_published were missing from both write serializers, so DRF
+# dropped them: the Active and Published toggles saved nothing and every
+# event stayed off the school's site.
+class EventCreateSerializer(_RespondWithFullEvent, serializers.ModelSerializer):
     images = serializers.ListField(
         child=serializers.FileField(),
         required=False,
         write_only=True
     )
-    
+
     class Meta:
         model = Event
         fields = [
@@ -62,9 +78,9 @@ class EventCreateSerializer(serializers.ModelSerializer):
             'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'start_date', 'end_date', 'ribbon_text', 'ribbon_speed',
             'carousel_interval', 'carousel_speed', 'show_indicators', 'show_controls',
-            'auto_play', 'images'
+            'auto_play', 'is_active', 'is_published', 'images'
         ]
-    
+
     def create(self, validated_data):
         images_data = validated_data.pop('images', [])
         # created_by and tenant are injected via perform_create in the ViewSet
@@ -82,13 +98,13 @@ class EventCreateSerializer(serializers.ModelSerializer):
         return event
 
 
-class EventUpdateSerializer(serializers.ModelSerializer):
+class EventUpdateSerializer(_RespondWithFullEvent, serializers.ModelSerializer):
     images = serializers.ListField(
         child=serializers.FileField(),
         required=False,
         write_only=True
     )
-    
+
     class Meta:
         model = Event
         fields = [
@@ -96,7 +112,7 @@ class EventUpdateSerializer(serializers.ModelSerializer):
             'cta_text', 'secondary_cta_text', 'event_type', 'background_theme',
             'display_type', 'start_date', 'end_date', 'ribbon_text', 'ribbon_speed',
             'carousel_interval', 'carousel_speed', 'show_indicators', 'show_controls',
-            'auto_play', 'images'
+            'auto_play', 'is_active', 'is_published', 'images'
         ]
     
     def update(self, instance, validated_data):
