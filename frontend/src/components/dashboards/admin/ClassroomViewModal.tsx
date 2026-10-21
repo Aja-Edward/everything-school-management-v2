@@ -11,6 +11,7 @@ import { useStudentEnrollment, useClassroomList, useClassroom } from '@/contexts
 import TimetableTab from './TimeTable';
 import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 import { toast } from 'react-hot-toast';
+import classroomService from '@/services/ClassroomService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,8 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
   const [selectedCoTeacherId, setSelectedCoTeacherId] = useState<number | ''>('');
   const [coTeacherSaving, setCoTeacherSaving] = useState(false);
   const [promotingTeacherId, setPromotingTeacherId] = useState<number | null>(null);
+  const [allSubjectsTeacherId, setAllSubjectsTeacherId] = useState<number | ''>('');
+  const [assigningAllSubjects, setAssigningAllSubjects] = useState(false);
 
   // ── Teaching model config ──────────────────────────────────────────────────
   const [teachingModel, setTeachingModel] = useState<TeachingModelSettings>(DEFAULT_TEACHING_MODEL);
@@ -110,7 +113,7 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
 
   const { transferStudent, transferring, getClassroomStudents } = useStudentEnrollment();
   const { classrooms } = useClassroomList();
-  const { teachers, updateClassroom, addCoTeacher, removeCoTeacher } = useClassroom();
+  const { teachers, updateClassroom, addCoTeacher, removeCoTeacher, refreshClassroom } = useClassroom();
 
   const targetOptions = classrooms.filter(c => c.id !== classroom?.id && c.is_active);
 
@@ -190,6 +193,29 @@ const ClassroomViewModal: React.FC<ClassroomViewModalProps> = ({
   };
 
   // ── Co-teacher handlers ────────────────────────────────────────────────────
+  // One teacher for the whole section, e.g. a nursery or primary class teacher
+  // in a school that uses subject teachers.
+  const handleAssignAllSubjects = async () => {
+    if (!classroom || allSubjectsTeacherId === '') return;
+    const teacher = teachers.find(t => t.id === allSubjectsTeacherId);
+    const name = teacher ? (teacher.full_name || `${teacher.first_name} ${teacher.last_name}`) : "this teacher";
+    if (!window.confirm(
+      `Make ${name} the teacher of every subject in ${classroom.name}? ` +
+      'Anyone else teaching a subject in this class will be replaced.'
+    )) return;
+    setAssigningAllSubjects(true);
+    try {
+      const { assigned } = await classroomService.assignAllSubjects(classroom.id, Number(allSubjectsTeacherId));
+      toast.success(`${name} now teaches all ${assigned} subjects in ${classroom.name}`);
+      setAllSubjectsTeacherId('');
+      await refreshClassroom(classroom.id);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || err?.message || 'Could not assign the subjects');
+    } finally {
+      setAssigningAllSubjects(false);
+    }
+  };
+
   const handleAddCoTeacher = async () => {
     if (!classroom || selectedCoTeacherId === '') return;
     setCoTeacherSaving(true);
@@ -900,6 +926,32 @@ const previewTeacher = selectedTeacherId !== ''
               // ── Secondary: subject-based assignments ──
               return (
                 <div>
+                  <div className="mb-5 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                    <p className="text-sm font-bold text-gray-800">One teacher for every subject</p>
+                    <p className="text-xs text-gray-500 mt-0.5 mb-3">
+                      For a class taught by a single teacher: they get every subject in this class,
+                      and become its {formTeacherLabel.toLowerCase()} if it has none.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={allSubjectsTeacherId}
+                        onChange={e => setAllSubjectsTeacherId(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white"
+                      >
+                        <option value="">Choose a teacher…</option>
+                        {teachers.filter(t => t.is_active).map(t => (
+                          <option key={t.id} value={t.id}>{t.full_name || `${t.first_name} ${t.last_name}`}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleAssignAllSubjects}
+                        disabled={allSubjectsTeacherId === '' || assigningAllSubjects}
+                        className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-900 text-white hover:bg-gray-700 disabled:bg-gray-100 disabled:text-gray-300 disabled:cursor-not-allowed"
+                      >
+                        {assigningAllSubjects ? <><Loader2 size={14} className="animate-spin" /> Assigning…</> : 'Give all subjects'}
+                      </button>
+                    </div>
+                  </div>
                   {classroom.teacher_assignments && classroom.teacher_assignments.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {classroom.teacher_assignments.map(assignment => (

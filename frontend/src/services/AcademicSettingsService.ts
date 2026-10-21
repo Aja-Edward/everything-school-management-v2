@@ -33,6 +33,8 @@ export interface GradingSettings {
   pass_percentage: number;
   enable_grade_curving: boolean;
   enable_grade_weighting: boolean;
+  /** Positions within the pupil's section (4th of 25) instead of the whole class (4th of 45). */
+  rank_within_section: boolean;
 }
 
 export interface AttendanceSettings {
@@ -80,6 +82,7 @@ const DEFAULTS: AllAcademicSettings = {
   pass_percentage: 40,
   enable_grade_curving: false,
   enable_grade_weighting: true,
+  rank_within_section: false,
   require_attendance: true,
   minimum_attendance_percentage: 75,
   enable_attendance_tracking: true,
@@ -123,6 +126,7 @@ class AcademicSettingsService {
         pass_percentage:                response.pass_percentage                ?? DEFAULTS.pass_percentage,
         enable_grade_curving:           response.enable_grade_curving           ?? DEFAULTS.enable_grade_curving,
         enable_grade_weighting:         response.enable_grade_weighting         ?? DEFAULTS.enable_grade_weighting,
+        rank_within_section:            response.rank_within_section            ?? DEFAULTS.rank_within_section,
         require_attendance:             response.require_attendance             ?? DEFAULTS.require_attendance,
         minimum_attendance_percentage:  response.minimum_attendance_percentage  ?? DEFAULTS.minimum_attendance_percentage,
         enable_attendance_tracking:     response.enable_attendance_tracking     ?? DEFAULTS.enable_attendance_tracking,
@@ -167,6 +171,7 @@ class AcademicSettingsService {
           pass_percentage:                response.pass_percentage                ?? DEFAULTS.pass_percentage,
           enable_grade_curving:           response.enable_grade_curving           ?? DEFAULTS.enable_grade_curving,
           enable_grade_weighting:         response.enable_grade_weighting         ?? DEFAULTS.enable_grade_weighting,
+          rank_within_section:            response.rank_within_section            ?? DEFAULTS.rank_within_section,
           require_attendance:             response.require_attendance             ?? DEFAULTS.require_attendance,
           minimum_attendance_percentage:  response.minimum_attendance_percentage  ?? DEFAULTS.minimum_attendance_percentage,
           enable_attendance_tracking:     response.enable_attendance_tracking     ?? DEFAULTS.enable_attendance_tracking,

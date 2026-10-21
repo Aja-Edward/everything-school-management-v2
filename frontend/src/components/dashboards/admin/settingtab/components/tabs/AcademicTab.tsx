@@ -125,6 +125,7 @@ const DEFAULT_SETTINGS: AllAcademicSettings = {
   pass_percentage: 40,
   enable_grade_curving: false,
   enable_grade_weighting: true,
+  rank_within_section: false,
   require_attendance: true,
   minimum_attendance_percentage: 75,
   enable_attendance_tracking: true,
@@ -249,6 +250,7 @@ const AcademicTabContent: React.FC = () => {
             pass_percentage: settings.pass_percentage,
             enable_grade_curving: settings.enable_grade_curving,
             enable_grade_weighting: settings.enable_grade_weighting,
+            rank_within_section: settings.rank_within_section,
           });
           break;
 
@@ -515,6 +517,17 @@ const AcademicTabContent: React.FC = () => {
                     onChange={(checked) => updateSetting('enable_grade_weighting', checked)}
                     label="Enable Grade Weighting"
                     description="Allow different weights for assignments and exams"
+                  />
+                  <ToggleSwitch
+                    id="rank-within-section"
+                    checked={settings.rank_within_section}
+                    onChange={(checked) => updateSetting('rank_within_section', checked)}
+                    label="Rank Pupils Within Their Section"
+                    description={
+                      'On: a pupil in Primary 3 Gold is ranked against Primary 3 Gold only (e.g. 4th of 25). ' +
+                      'Off: against all of Primary 3 (e.g. 4th of 45). Applies to positions, number in class, ' +
+                      'and each subject\'s highest and lowest. Terms already published to parents keep their positions.'
+                    }
                   />
                 </div>
               </div>

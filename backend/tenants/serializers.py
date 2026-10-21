@@ -311,6 +311,8 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "primary_use_subject_teachers",
             "junior_secondary_use_subject_teachers",
             "senior_secondary_use_subject_teachers",
+            # Positions within a section or across the whole class
+            "rank_within_section",
             "created_at",
             "updated_at",
         ]

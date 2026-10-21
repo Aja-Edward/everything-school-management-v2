@@ -61,6 +61,8 @@ from .models import (
 from students.models import Student
 from tenants.models import Tenant, TenantSettings
 
+from .ranking import ranks_within_section
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -419,14 +421,27 @@ class ReportGenerator:
             logger.debug(f"get_classroom_context: {e}")
         return {"name": _student_class_name(student), "section": ""}
 
-    def count_students_in_class(self, student):
-        """Count all active students in the same class, regardless of result status."""
+    def by_section(self, student, exam_session):
+        """
+        True when this school ranks pupils within their section for this term
+        (result/ranking.py), so "number in class", positions and a subject's
+        highest/lowest count only the pupil's own section.
+        """
+        if exam_session is None:
+            return False
+        return ranks_within_section(student.tenant_id, exam_session_id=exam_session.pk)
+
+    def count_students_in_class(self, student, exam_session=None):
+        """Count all active students in the same class (or section), regardless of result status."""
         try:
             from students.models import Student
-            count = Student.objects.filter(
+            peers = Student.objects.filter(
                 student_class=student.student_class,
                 tenant=student.tenant,
-            ).count()
+            )
+            if self.by_section(student, exam_session):
+                peers = peers.filter(section_id=student.section_id)
+            count = peers.count()
             return count or 0
         except Exception as e:
             logger.debug(f"count_students_in_class: {e}")
@@ -448,7 +463,10 @@ class ReportGenerator:
                 exam_session=report.exam_session,
                 student__student_class=report.student.student_class,
                 average_score__gt=avg,
-            ).count()
+            )
+            if self.by_section(report.student, report.exam_session):
+                better = better.filter(student__section_id=report.student.section_id)
+            better = better.count()
             return self.format_grade_suffix(better + 1)
         except Exception as e:
             logger.debug(f"compute_class_position: {e}")
@@ -553,19 +571,23 @@ class ReportGenerator:
             },
         }
 
-    def get_subject_min_max_map(self, ResultModel, exam_session, student_class):
+    def get_subject_min_max_map(self, ResultModel, exam_session, student_class, student=None):
         """
         One query for the whole report: return {subject_id: (class_max, class_min)}
-        across all subjects, for this exam session + class, among
-        approved/published results. Called once per report, not once per subject.
+        across all subjects, for this exam session + class (or `student`'s
+        section), among approved/published results. Called once per report,
+        not once per subject.
         """
         try:
+            rows = ResultModel.objects.filter(
+                exam_session=exam_session,
+                student__student_class=student_class,
+                status__in=("APPROVED", "PUBLISHED"),
+            )
+            if student is not None and self.by_section(student, exam_session):
+                rows = rows.filter(student__section_id=student.section_id)
             rows = (
-                ResultModel.objects.filter(
-                    exam_session=exam_session,
-                    student__student_class=student_class,
-                    status__in=("APPROVED", "PUBLISHED"),
-                )
+                rows
                 .values("subject_id")
                 .annotate(class_max=Max("percentage"), class_min=Min("percentage"))
             )
@@ -587,11 +609,14 @@ class ReportGenerator:
         in this codebase), instead of running one COUNT() query per subject.
         """
         try:
+            peers = ResultModel.objects.filter(
+                exam_session=exam_session,
+                student__student_class=student_class,
+            )
+            if self.by_section(student, exam_session):
+                peers = peers.filter(student__section_id=student.section_id)
             ranked = (
-                ResultModel.objects.filter(
-                    exam_session=exam_session,
-                    student__student_class=student_class,
-                )
+                peers
                 .annotate(
                     computed_rank=Window(
                         expression=DenseRank(),
@@ -822,7 +847,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
 
             subjects_data = []
             min_max_map = self.get_subject_min_max_map(
-                SeniorSecondaryResult, report.exam_session, report.student.student_class
+                SeniorSecondaryResult, report.exam_session, report.student.student_class, report.student
             )
             position_map = self.get_subject_position_map(
                 SeniorSecondaryResult, report.exam_session, report.student, report.student.student_class
@@ -861,7 +886,7 @@ class SeniorSecondaryReportGenerator(ReportGenerator):
             final_times_present = attendance_data["times_present"] or report.times_present or 0
 
             total_students = self.count_students_in_class(
-                report.student) or report.total_students or 0
+                report.student, report.exam_session) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, SeniorSecondaryResult, SeniorSecondaryTermReport
             )
@@ -1064,7 +1089,7 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
 
             subjects_data = []
             min_max_map = self.get_subject_min_max_map(
-                JuniorSecondaryResult, report.exam_session, report.student.student_class
+                JuniorSecondaryResult, report.exam_session, report.student.student_class, report.student
             )
             position_map = self.get_subject_position_map(
                 JuniorSecondaryResult, report.exam_session, report.student, report.student.student_class
@@ -1103,7 +1128,7 @@ class JuniorSecondaryReportGenerator(ReportGenerator):
             final_times_present = attendance_data["times_present"] or report.times_present or 0
 
             total_students = self.count_students_in_class(
-                report.student) or report.total_students or 0
+                report.student, report.exam_session) or report.total_students or 0
             class_position = self.compute_class_position(
                 report, JuniorSecondaryResult, JuniorSecondaryTermReport
             )
@@ -1222,7 +1247,7 @@ class PrimaryReportGenerator(ReportGenerator):
 
     def _total_students_in_class(self, student, exam_session):
         # Primary: count all active students in the class (regardless of result status)
-        total = self.count_students_in_class(student)
+        total = self.count_students_in_class(student, exam_session)
         if total:
             return total
         # Fallback: count from approved results
@@ -1281,7 +1306,7 @@ class PrimaryReportGenerator(ReportGenerator):
 
             subjects_data = []
             min_max_map = self.get_subject_min_max_map(
-                PrimaryResult, report.exam_session, report.student.student_class
+                PrimaryResult, report.exam_session, report.student.student_class, report.student
             )
             position_map = self.get_subject_position_map(
                 PrimaryResult, report.exam_session, report.student, report.student.student_class
@@ -1491,7 +1516,7 @@ class NurseryReportGenerator(ReportGenerator):
     def _build_standard_subjects_data(self, subject_results, exam_session, student, student_class):
         subjects_data = []
         min_max_map = self.get_subject_min_max_map(
-            NurseryResult, exam_session, student_class
+            NurseryResult, exam_session, student_class, student
         )
         position_map = self.get_subject_position_map(
             NurseryResult, exam_session, student, student_class
@@ -1644,7 +1669,7 @@ class NurseryReportGenerator(ReportGenerator):
                 summary_calc = self._compute_standard_summary(
                     report, subject_results)
                 total_students = self.count_students_in_class(
-                    report.student) or 0
+                    report.student, report.exam_session) or 0
 
                 context = {
                     **base_context,

@@ -49,6 +49,8 @@ from .serializers import (
     StreamTypeSerializer,  # NEW: Import StreamTypeSerializer
 )
 from teacher.serializers import TeacherSerializer
+from common.admin_access import admin_level_access
+from .subject_teaching import give_all_subjects
 from subject.serializers import SubjectSerializer, SubjectEducationLevelSerializer
 from subject.models import (
     SUBJECT_CATEGORY_CHOICES,
@@ -867,6 +869,41 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             },
             status=status.HTTP_200_OK,
         )
+
+    def perform_update(self, serializer):
+        before = serializer.instance.class_teacher_id
+        classroom = serializer.save()
+        # Class-teacher model: the class teacher teaches every subject, and a
+        # teacher's result screens list only subjects they are assigned, so
+        # being class teacher alone left them nothing to record.
+        if classroom.class_teacher_id and classroom.class_teacher_id != before:
+            level_type = classroom.section.class_grade.education_level.level_type
+            if not _uses_subject_teachers(self.request.tenant, level_type):
+                give_all_subjects(classroom, classroom.class_teacher)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsSchoolOrSectionAdmin])
+    def assign_all_subjects(self, request, pk=None):
+        """
+        One teacher for every subject in this class section (and its class
+        teacher if it has none), replacing whoever had those subjects.
+        """
+        classroom = self.get_object()
+        levels = admin_level_access(request.user, request.tenant)
+        level_type = classroom.section.class_grade.education_level.level_type
+        if levels is not None and level_type not in levels:
+            return Response({"error": "You do not manage this class's level."},
+                            status=status.HTTP_403_FORBIDDEN)
+        teacher = Teacher.objects.filter(
+            pk=request.data.get("teacher_id"), tenant=classroom.tenant, is_active=True
+        ).first()
+        if teacher is None:
+            return Response({"error": "Choose an active teacher from this school."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        count = give_all_subjects(classroom, teacher)
+        if not count:
+            return Response({"error": "No subjects are set up for this class yet."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        return Response({"assigned": count, "teacher_id": teacher.pk})
 
     @action(detail=True, methods=["post"])
     def assign_teacher(self, request, pk=None):

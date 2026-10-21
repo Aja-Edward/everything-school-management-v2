@@ -674,6 +674,28 @@ class TeacherSerializer(serializers.ModelSerializer):
             self._create_classroom_assignments(teacher, assignments, subjects)
         return teacher
 
+    def _assign_section(self, teacher, assignment_data):
+        """
+        Make `teacher` the class teacher of the section's current classroom
+        and give them its subjects (the ones chosen, else all of them).
+        Returns the (classroom_id, subject_id) pairs now theirs.
+        """
+        from classroom.subject_teaching import current_classroom, give_all_subjects, section_subjects
+
+        classroom = current_classroom(assignment_data.get("section_id"))
+        if classroom is None or classroom.tenant_id != teacher.tenant_id:
+            return set()
+        chosen = [int(s) for s in assignment_data.get("subject_ids") or [] if str(s).isdigit()]
+        subjects = (
+            Subject.objects.filter(id__in=chosen, tenant_id=classroom.tenant_id)
+            if chosen else section_subjects(classroom)
+        )
+        give_all_subjects(classroom, teacher, subjects)
+        if classroom.class_teacher_id != teacher.pk:
+            classroom.class_teacher = teacher
+            classroom.save(update_fields=["class_teacher"])
+        return {(classroom.pk, s.pk) for s in subjects}
+
     def _create_classroom_assignments(self, teacher, assignments, subjects):
         """Upsert classroom assignments for a teacher.
 
@@ -703,6 +725,13 @@ class TeacherSerializer(serializers.ModelSerializer):
         incoming_pairs: set = set()
 
         for assignment_data in assignments:
+            # Class-teacher model (nursery/primary): the form sends the
+            # section and the subjects the teacher takes there, not
+            # classroom/subject pairs. This used to be skipped, which left
+            # the teacher with no subjects and also deleted the ones they had.
+            if assignment_data.get("section_id") and not assignment_data.get("classroom_id"):
+                incoming_pairs |= self._assign_section(teacher, assignment_data)
+                continue
             try:
                 classroom_id = assignment_data.get("classroom_id")
                 subject_id = assignment_data.get("subject_id")

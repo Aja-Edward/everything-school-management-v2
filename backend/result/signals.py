@@ -37,7 +37,7 @@ Design principles:
 
 import logging
 from decimal import Decimal
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.db import transaction
 
@@ -716,3 +716,31 @@ def fix_specific_student_report(student_id, exam_session_id, education_level):
 
     logger.info(f"fix_specific_student_report: created report {term_report.id}")
     return term_report
+
+
+# ---------------------------------------------------------------------------
+# Ranking scope: published report cards keep their positions
+# ---------------------------------------------------------------------------
+
+@receiver(pre_save, sender="tenants.TenantSettings")
+def freeze_published_ranking_scopes(sender, instance, **kwargs):
+    """
+    When a school switches between ranking within sections and across the
+    whole class, keep every term and session it has already published at the
+    old scope (result/ranking.py), so a later recalculation never changes a
+    position parents have seen.
+    """
+    from result.ranking import freeze_published_scopes
+
+    if instance._state.adding:
+        return
+    before = (
+        sender.objects.filter(pk=instance.pk).values_list("rank_within_section", flat=True).first()
+    )
+    if before is None or before == instance.rank_within_section:
+        return
+    frozen = freeze_published_scopes(instance, before)
+    instance.ranking_scope_frozen = frozen
+    # Written now as well: a save(update_fields=[...]) that leaves this field
+    # out would otherwise drop it.
+    sender.objects.filter(pk=instance.pk).update(ranking_scope_frozen=frozen)

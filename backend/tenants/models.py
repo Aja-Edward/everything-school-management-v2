@@ -1036,6 +1036,17 @@ class TenantSettings(models.Model):
         help_text="Senior Secondary classrooms use subject teachers (standard behaviour)",
     )
 
+    # Positions on results: within the pupil's section (Primary 3 Gold: 4th of
+    # 25) or across the whole class (Primary 3: 4th of 45). See result/ranking.py.
+    rank_within_section = models.BooleanField(
+        default=False,
+        help_text="Rank pupils against their own section rather than the whole class",
+    )
+    # {"exam_session:<id>": bool, "academic_session:<id>": bool}: the scope a
+    # term or session already published to parents keeps when the switch above
+    # is changed, so report cards parents have seen never change position.
+    ranking_scope_frozen = models.JSONField(default=dict, blank=True)
+
     # Stored signatures — persisted so they don't need re-uploading each session
     head_teacher_signature_url = models.URLField(
         blank=True, null=True,

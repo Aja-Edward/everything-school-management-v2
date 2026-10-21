@@ -67,6 +67,8 @@ from students.models import Student
 from subject.models import Subject
 from tenants.models import TenantMixin
 
+from .ranking import assign_positions, locked_groups, ranks_within_section, section_groups
+
 
 logger = logging.getLogger(__name__)
 
@@ -1457,10 +1459,24 @@ class BaseResult(models.Model):
     def bulk_recalculate_positions(cls, queryset):
         """
         Assign subject_position, class_average, highest_in_class,
-        lowest_in_class for all results in *queryset*.
+        lowest_in_class for all results in *queryset* (one subject in one
+        class), within each section when the school ranks by section
+        (result/ranking.py).
+        """
+        first = queryset.order_by().values("tenant_id", "exam_session_id").first()
+        if first is None:
+            return
+        by_section = ranks_within_section(
+            first["tenant_id"], exam_session_id=first["exam_session_id"])
+        for group in section_groups(queryset, by_section):
+            cls._rank_subject_group(group)
 
-        Uses a single SQL Window RANK() — no Python-side sorting.
-        All work done in two SQL statements (annotate + bulk_update).
+    @classmethod
+    def _rank_subject_group(cls, queryset):
+        """
+        Rank one group of results for a subject. Uses a single SQL Window
+        RANK() — no Python-side sorting. All work done in two SQL statements
+        (annotate + bulk_update).
         """
         if not queryset.exists():
             return
@@ -1691,32 +1707,11 @@ class BaseTermReport(models.Model):
             student__student_class=student_class,
             status__in=statuses,
         )
+        # Within each section when the school ranks by section
+        # (result/ranking.py): total_students is then the section's size.
         with transaction.atomic():
-            qs = cls.objects.filter(**base_filter).select_for_update()
-            total = qs.count()
-            if not total:
-                return
-
-            # Use a separate queryset for the window function —
-            # PostgreSQL does not allow FOR UPDATE with window functions.
-            ranked = (
-                cls.objects.filter(**base_filter)
-                .annotate(
-                    rank=Window(
-                        expression=DenseRank(),
-                        order_by=F("average_score").desc(),
-                    )
-                )
-                .values("pk", "rank")
-            )
-            rank_map = {row["pk"]: row["rank"] for row in ranked}
-            reports = list(qs.only("pk", "class_position", "total_students"))
-            for r in reports:
-                r.class_position = rank_map.get(r.pk)
-                r.total_students = total
-            cls.objects.bulk_update(
-                reports, ["class_position", "total_students"], batch_size=200
-            )
+            for group in locked_groups(cls, base_filter, "exam_session_id"):
+                assign_positions(cls, group, "average_score", "class_position", "total_students")
 
 
 # ============================================================
@@ -2111,6 +2106,8 @@ class BaseSessionReport(BaseTermReport, models.Model):
             student__education_level=self.student.education_level,
             status__in=("APPROVED", "PUBLISHED"),
         ).exclude(pk=self.pk)
+        if ranks_within_section(self.tenant_id, academic_session_id=self.academic_session_id):
+            peers = peers.filter(student__section_id=self.student.section_id)
         self.overall_position = (
             peers.filter(overall_average__gt=self.overall_average).count() + 1
         )
@@ -2123,35 +2120,16 @@ class BaseSessionReport(BaseTermReport, models.Model):
         cls, academic_session, student_class, education_level
     ):
         """SQL RANK() — no Python sort, no per-row save."""
+        base_filter = dict(
+            academic_session=academic_session,
+            student__student_class=student_class,
+            student__student_class__education_level__level_type=education_level,
+            status__in=("APPROVED", "PUBLISHED"),
+        )
+        # Within each section when the school ranks by section (result/ranking.py).
         with transaction.atomic():
-            qs = cls.objects.filter(
-                academic_session=academic_session,
-                student__student_class=student_class,
-                student__student_class__education_level__level_type=education_level,
-                status__in=("APPROVED", "PUBLISHED"),
-            ).select_for_update()
-
-            total = qs.count()
-            if not total:
-                return
-
-            ranked = qs.annotate(
-                rank=Window(
-                    expression=DenseRank(),
-                    order_by=F("overall_average").desc(),
-                )
-            ).values("pk", "rank")
-
-            rank_map = {row["pk"]: row["rank"] for row in ranked}
-            reports = list(qs.only("pk", "overall_position", "total_students"))
-            for r in reports:
-                r.overall_position = rank_map.get(r.pk)
-                r.total_students = total
-            cls.objects.bulk_update(
-                reports,
-                ["overall_position", "total_students"],
-                batch_size=200,
-            )
+            for group in locked_groups(cls, base_filter, "academic_session_id"):
+                assign_positions(cls, group, "overall_average", "overall_position", "total_students")
 
 
 # ============================================================
@@ -2889,35 +2867,11 @@ class NurseryTermReport(TenantMixin, BaseTermReport, PhysicalDevelopmentFields, 
             student__student_class=student_class,
             status__in=statuses,
         )
+        # Within each section when the school ranks by section (result/ranking.py).
         with transaction.atomic():
-            qs = cls.objects.filter(**base_filter).select_for_update()
-            total = qs.count()
-            if not total:
-                return
-
-            # Use a separate queryset for the window function —
-            # PostgreSQL does not allow FOR UPDATE with window functions.
-            ranked = (
-                cls.objects.filter(**base_filter)
-                .annotate(
-                    rank=Window(
-                        expression=DenseRank(),
-                        order_by=F("overall_percentage").desc(),
-                    )
-                )
-                .values("pk", "rank")
-            )
-            rank_map = {row["pk"]: row["rank"] for row in ranked}
-            reports = list(qs.only("pk", "class_position",
-                           "total_students_in_class"))
-            for r in reports:
-                r.class_position = rank_map.get(r.pk)
-                r.total_students_in_class = total
-            cls.objects.bulk_update(
-                reports,
-                ["class_position", "total_students_in_class"],
-                batch_size=200,
-            )
+            for group in locked_groups(cls, base_filter, "exam_session_id"):
+                assign_positions(
+                    cls, group, "overall_percentage", "class_position", "total_students_in_class")
 
 
 class NurseryResult(TenantMixin, BaseResult, models.Model):

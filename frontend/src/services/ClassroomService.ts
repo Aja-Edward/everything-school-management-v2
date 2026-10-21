@@ -153,6 +153,11 @@ class ClassroomService {
     return api.post(`/api/classrooms/classrooms/${classroomId}/remove_teacher/`, data);
   }
 
+  /** One teacher for every subject in this class section (and its class teacher if it has none). */
+  async assignAllSubjects(classroomId: number, teacherId: number): Promise<{ assigned: number }> {
+    return api.post(`/api/classrooms/classrooms/${classroomId}/assign_all_subjects/`, { teacher_id: teacherId });
+  }
+
   async addCoTeacher(classroomId: number, data: AddCoTeacherData) {
     return api.post(`/api/classrooms/classrooms/${classroomId}/add_co_teacher/`, data);
   }

@@ -1743,13 +1743,18 @@ class BaseResultViewSetMixin:
 
                 # Recalculate positions with SQL RANK() — no Python sort.
                 class_groups = set()
+                subject_groups = set()
                 for obj in created_results:
                     sc = obj.student.student_class
                     class_groups.add((obj.exam_session_id, sc))
+                    subject_groups.add((obj.exam_session_id, obj.subject_id, sc))
 
-                for esid, sc in class_groups:
+                # One subject at a time: ranking the whole class's results
+                # together mixed every subject into one list of positions.
+                for esid, subject_id, sc in subject_groups:
                     qs = ModelClass.objects.filter(
                         exam_session_id=esid,
+                        subject_id=subject_id,
                         student__student_class=sc,
                         status__in=(APPROVED, PUBLISHED),
                     )
