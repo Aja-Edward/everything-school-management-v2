@@ -17,6 +17,7 @@ import {
 } from '@/contexts/ClassroomContext';
 import type {Student, Period, TimetableSlot, SlotForm} from '@/types/classtimetabletypes'
 import TransferTeacherPanel from '@/components/dashboards/admin/TransferTeacherPanel';
+import TransferTargetOptions from '@/components/dashboards/admin/TransferTargetOptions';
 
 // ─── Auth hook ────────────────────────────────────────────────────────────────
 import { useAuth } from '@/hooks/useAuth';
@@ -1506,7 +1507,7 @@ useEffect(() => {
                                     <ArrowRightLeft size={12} />
                                     Transfer{' '}
                                     <span className="text-gray-800">{student.full_name}</span>{' '}
-                                    to another classroom
+                                    to another class or section
                                   </p>
                                   <div className="flex gap-3 flex-wrap">
                                     <div className="relative flex-1 min-w-[220px]">
@@ -1521,19 +1522,8 @@ useEffect(() => {
                                         }
                                         className="w-full appearance-none px-4 py-3 pr-10 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 cursor-pointer transition-all"
                                       >
-                                        <option value="">Select target classroom…</option>
-                                        {targetOptions.map((c) => (
-                                          <option
-                                            key={c.id}
-                                            value={c.id}
-                                            disabled={c.is_full}
-                                          >
-                                            {c.name} — {c.grade_level_name}
-                                            {c.is_full
-                                              ? ' (Full)'
-                                              : ` (${c.available_spots} spot${c.available_spots !== 1 ? 's' : ''})`}
-                                          </option>
-                                        ))}
+                                        <option value="">Select class or section…</option>
+                                        <TransferTargetOptions source={classroom} targets={targetOptions} />
                                       </select>
                                       <ChevronDown
                                         size={14}

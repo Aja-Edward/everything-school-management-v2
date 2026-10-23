@@ -12,6 +12,7 @@ import TimetableTab from './TimeTable';
 import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 import { toast } from 'react-hot-toast';
 import classroomService from '@/services/ClassroomService';
+import TransferTargetOptions from './TransferTargetOptions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -731,7 +732,7 @@ const previewTeacher = selectedTeacherId !== ''
                                   <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
                                     <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400 mb-3 flex items-center gap-2">
                                       <ArrowRightLeft size={11} />
-                                      Transfer <span className="text-gray-800">{student.full_name}</span> to another classroom
+                                      Transfer <span className="text-gray-800">{student.full_name}</span> to another class or section
                                     </p>
                                     <div className="flex gap-2.5 flex-wrap">
                                       <div className="relative flex-1 min-w-[200px]">
@@ -740,13 +741,8 @@ const previewTeacher = selectedTeacherId !== ''
                                           onChange={e => setTargetClassroomId(e.target.value === '' ? '' : Number(e.target.value))}
                                           className="w-full appearance-none px-4 py-2.5 pr-9 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 cursor-pointer transition-all"
                                         >
-                                          <option value="">Select target classroom…</option>
-                                          {targetOptions.map(c => (
-                                            <option key={c.id} value={c.id} disabled={c.is_full}>
-                                              {c.name} — {c.grade_level_name}
-                                              {c.is_full ? ' (Full)' : ` (${c.available_spots} spot${c.available_spots !== 1 ? 's' : ''})`}
-                                            </option>
-                                          ))}
+                                          <option value="">Select class or section…</option>
+                                          <TransferTargetOptions source={classroom} targets={targetOptions} />
                                         </select>
                                         <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                                       </div>

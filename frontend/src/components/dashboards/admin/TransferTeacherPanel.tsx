@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { Classroom, ClassroomTeacherAssignment } from '@/types/classroomtypes';
 import classroomService from '@/services/ClassroomService';
+import { classroomLabel } from '@/services/TeacherService';
+import TransferTargetOptions from './TransferTargetOptions';
 
 interface Props {
   classroom: Classroom;
@@ -232,12 +234,7 @@ const TransferTeacherPanel: React.FC<Props> = ({
           className="w-full appearance-none px-4 py-3 pr-10 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-900/5 transition-all"
         >
           <option value="">Select destination classroom…</option>
-          {targetOptions.map((c) => (
-            <option key={c.id} value={c.id} disabled={c.is_full ?? false}>
-              {c.name} — {c.grade_level_name}
-              {c.is_full ? ' (Full)' : c.available_spots != null ? ` (${c.available_spots} spots)` : ''}
-            </option>
-          ))}
+          <TransferTargetOptions source={classroom} targets={targetOptions} />
         </select>
         <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
       </div>
@@ -252,11 +249,11 @@ const TransferTeacherPanel: React.FC<Props> = ({
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">From</span>
-            <span className="font-semibold text-gray-800">{classroom.name}</span>
+            <span className="font-semibold text-gray-800">{classroomLabel(classroom)}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">To</span>
-            <span className="font-semibold text-gray-800">{targetClassroom.name}</span>
+            <span className="font-semibold text-gray-800">{classroomLabel(targetClassroom)}</span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Subjects</span>

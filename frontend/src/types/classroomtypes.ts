@@ -49,6 +49,8 @@ export interface TransferStudentResponse {
   message: string;
   from_classroom: string;
   to_classroom: string;
+  from_section?: string;
+  to_section?: string;
   enrollment: any;
 }
 
@@ -140,6 +142,8 @@ export interface Classroom {
   class_teacher: number | null;
   stream?: number | null;
   section_name: string;
+  class_grade?: number | null;
+  class_name?: string;
   grade_level_name: string;
   education_level: EducationLevelType;
   academic_session_name: string;

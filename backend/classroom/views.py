@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from common.admin_access import IsSchoolOrSectionAdmin
 from django_filters.rest_framework import DjangoFilterBackend
 from django.views.decorators.cache import cache_page
+from django.db import transaction
 from django.db.models import Q, Count
 from django.utils import timezone
 from django.conf import settings
@@ -1153,7 +1154,15 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
     @action(detail=True, methods=["post"], permission_classes=[IsSchoolOrSectionAdmin])
     def transfer_student(self, request, pk=None):
-        """Transfer a student from this classroom to another"""
+        """
+        Transfer a student from this classroom to another — another class, or
+        another section of the same class (Primary 3 Gold → Primary 3 Silver).
+
+        The student's own class and section move with the enrollment. Those
+        fields are what results, rankings and attendance read, and the Student
+        post_save signal re-enrolls a student into their section's classroom,
+        so leaving them behind would undo the transfer on the next save.
+        """
         classroom = self.get_object()
         student_id = request.data.get("student_id")
         target_classroom_id = request.data.get("target_classroom_id")
@@ -1173,6 +1182,24 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
             ).get(id=student_id)
             target_classroom = self.get_queryset().get(id=target_classroom_id)
 
+            if target_classroom.id == classroom.id:
+                return Response(
+                    {"error": "The student is already in this classroom."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not target_classroom.is_active:
+                return Response(
+                    {"error": f"Target classroom '{target_classroom.name}' is not active."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not StudentEnrollment.objects.filter(
+                student=student, classroom=classroom, is_active=True
+            ).exists():
+                return Response(
+                    {"error": f"{student.user.get_full_name()} is not enrolled in '{classroom.name}'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # Check target capacity
             if target_classroom.is_full:
                 return Response(
@@ -1184,29 +1211,57 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Deactivate current enrollment
-            StudentEnrollment.objects.filter(
-                student=student, classroom=classroom, is_active=True
-            ).update(is_active=False)
+            target_section = target_classroom.section
+            target_class = target_section.class_grade
+            student_fields = {
+                "student_class": target_class,
+                "section": target_section,
+            }
+            if target_classroom.stream_id:
+                student_fields["stream"] = target_classroom.stream
+            elif (
+                student.stream_id
+                and student.student_class_id != target_class.id
+                and student.stream.grade_level_id not in (None, target_class.grade_level_id)
+            ):
+                # A stream belongs to one grade level; don't carry an SSS 1
+                # stream into SSS 2.
+                student_fields["stream"] = None
 
-            # Enroll in target — reactivate if record exists
-            enrollment, created = StudentEnrollment.objects.get_or_create(
-                tenant=request.tenant,
-                student=student,
-                classroom=target_classroom,
-                defaults={"is_active": True},
-            )
-            if not created:
-                enrollment.is_active = True
-                enrollment.enrollment_date = timezone.now().date()
-                enrollment.save(update_fields=["is_active", "enrollment_date"])
+            with transaction.atomic():
+                # Deactivate current enrollment
+                StudentEnrollment.objects.filter(
+                    student=student, classroom=classroom, is_active=True
+                ).update(is_active=False)
+
+                # Enroll in target — reactivate if record exists
+                enrollment, created = StudentEnrollment.objects.get_or_create(
+                    tenant=request.tenant,
+                    student=student,
+                    classroom=target_classroom,
+                    defaults={"is_active": True},
+                )
+                if not created:
+                    enrollment.is_active = True
+                    enrollment.enrollment_date = timezone.now().date()
+                    enrollment.save(update_fields=["is_active", "enrollment_date"])
+
+                # update() rather than save(): the post_save signal would pick
+                # its own classroom for the section, which may not be the one
+                # the admin chose.
+                Student.objects.filter(pk=student.pk).update(**student_fields)
 
             serializer = StudentEnrollmentSerializer(enrollment)
             return Response(
                 {
-                    "message": f"Student {student.user.get_full_name()} transferred successfully.",
+                    "message": (
+                        f"{student.user.get_full_name()} moved to "
+                        f"{target_class.name} {target_section.name}."
+                    ),
                     "from_classroom": classroom.name,
                     "to_classroom": target_classroom.name,
+                    "from_section": classroom.section.name,
+                    "to_section": target_section.name,
                     "enrollment": serializer.data,
                 },
                 status=status.HTTP_200_OK,

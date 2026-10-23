@@ -761,6 +761,15 @@ class ClassroomSerializer(serializers.ModelSerializer):
         source="section.class_grade.grade_level.name", read_only=True, allow_null=True
     )
 
+    # The class (e.g. Primary 3) this classroom's section belongs to — lets the
+    # transfer picker tell the other sections of a class from other classes.
+    class_grade = serializers.IntegerField(
+        source="section.class_grade_id", read_only=True
+    )
+    class_name = serializers.CharField(
+        source="section.class_grade.name", read_only=True
+    )
+
     academic_session_name = serializers.CharField(
         source="academic_session.name", read_only=True
     )
@@ -791,6 +800,8 @@ class ClassroomSerializer(serializers.ModelSerializer):
             "name",
             "section",
             "section_name",
+            "class_grade",
+            "class_name",
             "grade_level_name",
             "education_level",
             "academic_session",
