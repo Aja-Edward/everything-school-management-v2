@@ -14,6 +14,22 @@ import type {
   ClassroomOption,
 } from '@/types/teacher';
 
+// ─── Classroom label ──────────────────────────────────────────────────────────
+// A classroom's name is usually just its class ("Primary 3"), so a school with
+// two sections of a class would see two identical options. Add the section
+// ("Primary 3 — Silver") unless the name already carries it.
+
+export const classroomLabel = (c: {
+  name?: string | null;
+  grade_level_name?: string | null;
+  section_name?: string | null;
+}): string => {
+  const base = (c.name || c.grade_level_name || '').trim();
+  const section = (c.section_name || '').trim();
+  if (!section || base.toLowerCase().includes(section.toLowerCase())) return base || section;
+  return base ? `${base} — ${section}` : section;
+};
+
 // ─── Shared header helper ─────────────────────────────────────────────────────
 // Auth is handled automatically via the httpOnly cookie + credentials: "include".
 // Tenant slug is non-sensitive routing metadata kept in localStorage.
@@ -213,7 +229,7 @@ class TeacherService {
     const arr: any[] = Array.isArray(data) ? data : data.results ?? [];
     return arr.map((c) => ({
       id: c.id,
-      name: c.name || `${c.grade_level_name ?? ''} ${c.section_name ?? ''}`.trim(),
+      name: classroomLabel(c),
       section: c.section,
       section_name: c.section_name,
       grade_level_name: c.grade_level_name,

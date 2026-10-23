@@ -8,6 +8,7 @@ import type {
   SubjectOption,
 } from '@/types/teacher';
 import api from '@/services/api';
+import { classroomLabel } from '@/services/TeacherService';
 import academicSettingsService, { type TeachingModelSettings } from '@/services/AcademicSettingsService';
 
 interface EditTeacherFormProps {
@@ -338,7 +339,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
         setClassroomOptions(
           unique.map((c) => ({
             id:   c.id,
-            name: c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`.trim(),
+            name: classroomLabel(c),
           }))
         );
       } catch (err) {
@@ -400,7 +401,7 @@ const EditTeacherForm: React.FC<EditTeacherFormProps> = ({
             const arr: any[] = Array.isArray(data) ? data : (data.results ?? []);
             return arr.map((c) => ({
               id: c.id as number,
-              name: (c.name || `${c.grade_level_name || ''} ${c.section_name || ''}`.trim()) as string,
+              name: classroomLabel(c),
               education_level: lv,
             }));
           })
