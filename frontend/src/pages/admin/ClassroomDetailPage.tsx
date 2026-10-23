@@ -321,7 +321,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
   return (
     <div className="space-y-6">
       {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Weekly Timetable</h2>
           <p className="text-sm text-gray-400 mt-0.5">
@@ -367,7 +367,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
         {DAYS.map((day) => (
           <div key={day.key} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
             {/* Day header */}
-            <div className={`px-6 py-3.5 flex items-center gap-3 border-b border-gray-100 ${DAY_COLORS[day.key]} bg-opacity-40`}>
+            <div className={`px-4 sm:px-6 py-3.5 flex items-center gap-3 border-b border-gray-100 ${DAY_COLORS[day.key]} bg-opacity-40`}>
               <div className={`w-2 h-2 rounded-full ${DAY_ACCENT[day.key]}`} />
               <span className="text-sm font-bold tracking-wide">{day.label}</span>
               <span className="ml-auto text-xs opacity-60">
@@ -376,8 +376,8 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
               </span>
             </div>
 
-            {/* Periods row */}
-            <div className="flex overflow-x-auto">
+            {/* Periods: a row per day from sm up, a list of periods on a phone */}
+            <div className="flex flex-col sm:flex-row sm:overflow-x-auto">
               {periods.map((period) => {
                 const slot = getSlot(period, day.key);
                 const isActive =
@@ -387,13 +387,13 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                   return (
                     <div
                       key={period.id}
-                      className="flex-shrink-0 flex flex-col items-center justify-center px-4 py-5 bg-amber-50/60 border-r border-amber-100 last:border-r-0 min-w-[100px]"
+                      className="flex-shrink-0 flex flex-row sm:flex-col items-center justify-center gap-2 sm:gap-0 px-4 py-2.5 sm:py-5 bg-amber-50/60 border-b sm:border-b-0 sm:border-r border-amber-100 last:border-0 sm:min-w-[100px]"
                     >
-                      <Coffee size={14} className="text-amber-400 mb-1" />
+                      <Coffee size={14} className="text-amber-400 sm:mb-1" />
                       <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider text-center">
                         {period.label}
                       </p>
-                      <p className="text-[9px] text-amber-400 font-mono mt-0.5">
+                      <p className="text-[9px] text-amber-400 font-mono sm:mt-0.5">
                         {period.start_time}–{period.end_time}
                       </p>
                     </div>
@@ -403,10 +403,10 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                 return (
                   <div
                     key={period.id}
-                    className="flex-1 min-w-[140px] border-r border-gray-100 last:border-r-0 flex flex-col"
+                    className="sm:flex-1 sm:min-w-[140px] border-b sm:border-b-0 sm:border-r border-gray-100 last:border-0 flex flex-row sm:flex-col"
                   >
                     {/* Period label */}
-                    <div className="px-3 py-2 border-b border-gray-50 bg-gray-50/50">
+                    <div className="w-24 flex-shrink-0 sm:w-auto px-3 py-2 flex flex-col justify-center sm:block border-r sm:border-r-0 sm:border-b border-gray-50 bg-gray-50/50">
                       <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
                         {period.label}
                       </p>
@@ -416,12 +416,12 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                     </div>
 
                     {/* Cell */}
-                    <div className="flex-1 p-2">
+                    <div className="flex-1 min-w-0 p-2">
                       {slot ? (
                         <button
                           onClick={() => openCell(period, day.key)}
                           disabled={!canEdit}
-                          className={`w-full h-full min-h-[72px] text-left px-3 py-3 rounded-xl border transition-all duration-150 group ${
+                          className={`w-full h-full min-h-[56px] sm:min-h-[72px] text-left px-3 py-3 rounded-xl border transition-all duration-150 group ${
                             isActive
                               ? 'border-gray-900 bg-gray-900 text-white shadow-lg'
                               : `${DAY_COLORS[day.key]} hover:shadow-md`
@@ -454,7 +454,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                       ) : canEdit ? (
                         <button
                           onClick={() => openCell(period, day.key)}
-                          className="w-full h-full min-h-[72px] rounded-xl border-2 border-dashed border-gray-150 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 flex items-center justify-center group"
+                          className="w-full h-full min-h-[56px] sm:min-h-[72px] rounded-xl border-2 border-dashed border-gray-150 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150 flex items-center justify-center group"
                         >
                           <Plus
                             size={16}
@@ -462,7 +462,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                           />
                         </button>
                       ) : (
-                        <div className="min-h-[72px] rounded-xl bg-gray-50/50" />
+                        <div className="min-h-[56px] sm:min-h-[72px] rounded-xl bg-gray-50/50" />
                       )}
                     </div>
                   </div>
@@ -476,7 +476,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
       {/* ── Slot Edit Panel ── */}
       {activeCell && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-md">
-          <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
+          <div className="px-4 sm:px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
             <div className="flex items-center gap-3">
               <BookOpen size={15} className="text-gray-400" />
               <div>
@@ -497,7 +497,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
             </button>
           </div>
 
-          <div className="p-6 space-y-5">
+          <div className="p-4 sm:p-6 space-y-5">
             {slotStatus !== 'idle' && (
               <div
                 className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-semibold ${
@@ -589,7 +589,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
               </div>
             </div>
 
-            <div className="flex gap-3 pt-1">
+            <div className="flex flex-wrap gap-3 pt-1">
               {getSlot(activeCell.period, activeCell.day)?.id && (
                 <button
                   onClick={() => handleDeleteSlot(getSlot(activeCell.period, activeCell.day)!)}
@@ -643,7 +643,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
           onClick={(e) => e.target === e.currentTarget && setShowPeriodConfig(false)}
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 bg-gray-50 flex-shrink-0">
               <div className="flex items-center gap-2.5">
                 <Clock size={15} className="text-gray-400" />
                 <span className="text-sm font-bold text-gray-700">Configure Periods</span>
@@ -662,7 +662,7 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                 .map((period, idx) => (
                   <div
                     key={period.id}
-                    className={`flex items-center gap-3 p-3 rounded-xl border ${
+                    className={`flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 p-3 rounded-xl border ${
                       period.is_break
                         ? 'bg-amber-50 border-amber-100'
                         : 'bg-gray-50 border-gray-100'
@@ -684,21 +684,23 @@ const TimetableSection: React.FC<TimetableSectionProps> = ({ classroom, canEdit 
                       type="text"
                       value={period.label}
                       onChange={(e) => updatePeriodField(period.id, 'label', e.target.value)}
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 bg-white outline-none focus:border-gray-900 transition-all"
+                      className="flex-1 min-w-[8rem] px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 bg-white outline-none focus:border-gray-900 transition-all"
                       placeholder="Label"
                     />
+                    {/* On a phone the times and buttons wrap onto a second line. */}
+                    <div className="basis-full sm:hidden" />
                     <input
                       type="time"
                       value={period.start_time}
                       onChange={(e) => updatePeriodField(period.id, 'start_time', e.target.value)}
-                      className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-mono text-gray-600 bg-white outline-none focus:border-gray-900 transition-all w-24"
+                      className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-mono text-gray-600 bg-white outline-none focus:border-gray-900 transition-all w-[5.5rem] sm:w-24"
                     />
                     <span className="text-gray-300 text-xs">–</span>
                     <input
                       type="time"
                       value={period.end_time}
                       onChange={(e) => updatePeriodField(period.id, 'end_time', e.target.value)}
-                      className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-mono text-gray-600 bg-white outline-none focus:border-gray-900 transition-all w-24"
+                      className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-mono text-gray-600 bg-white outline-none focus:border-gray-900 transition-all w-[5.5rem] sm:w-24"
                     />
                     <button
                       onClick={() => updatePeriodField(period.id, 'is_break', !period.is_break)}
@@ -1026,7 +1028,7 @@ useEffect(() => {
             }}
           />
 
-          <div className="relative max-w-7xl mx-auto px-6 lg:px-10">
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-10">
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 pt-6 pb-2">
               <button
@@ -1039,14 +1041,14 @@ useEffect(() => {
               <span className="text-white/60 text-xs font-semibold">{classroom.name}</span>
             </div>
 
-            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8 py-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 sm:gap-8 py-6 sm:py-8">
               {/* Identity */}
-              <div className="flex items-start gap-6">
-                <div className="w-20 h-20 rounded-2xl bg-white flex items-center justify-center flex-shrink-0 shadow-xl">
-                  <GraduationCap size={32} className="text-gray-900" />
+              <div className="flex items-start gap-4 sm:gap-6 min-w-0">
+                <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl bg-white flex items-center justify-center flex-shrink-0 shadow-xl">
+                  <GraduationCap className="w-6 h-6 sm:w-8 sm:h-8 text-gray-900" />
                 </div>
-                <div className="pt-1">
-                  <div className="flex items-center gap-2 mb-2">
+                <div className="pt-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className="text-[10px] font-semibold tracking-[0.22em] uppercase text-white/40">
                       {classroom.education_level.replace(/_/g, ' ')}
                     </span>
@@ -1056,29 +1058,30 @@ useEffect(() => {
                     </span>
                   </div>
                   <h1
-                    className="text-4xl font-bold text-white leading-tight mb-3"
+                    className="text-3xl sm:text-4xl font-bold text-white leading-tight mb-3 break-words"
                     style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", letterSpacing: '-0.02em' }}
                   >
                     {classroom.name}
                   </h1>
-                  <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
                     <div className="flex items-center gap-1.5 text-white/50 text-xs font-medium">
                       <Calendar size={12} />
                       <span>{classroom.academic_session_name}</span>
                     </div>
-                    <span className="text-white/20">·</span>
                     <div className="flex items-center gap-1.5 text-white/50 text-xs font-medium">
                       <Hash size={12} />
                       <span>{classroom.term_name}</span>
                     </div>
                     {classroom.room_number && (
-                      <>
-                        <span className="text-white/20">·</span>
-                        <div className="flex items-center gap-1.5 text-white/50 text-xs font-medium">
-                          <MapPin size={12} />
-                          <span>Room {classroom.room_number}</span>
-                        </div>
-                      </>
+                      <div className="flex items-center gap-1.5 text-white/50 text-xs font-medium">
+                        <MapPin size={12} />
+                        {/* Schools often type "Room 46" into the room number itself. */}
+                        <span>
+                          {/^room\b/i.test(classroom.room_number)
+                            ? classroom.room_number
+                            : `Room ${classroom.room_number}`}
+                        </span>
+                      </div>
                     )}
                     <span
                       className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase ${
@@ -1094,7 +1097,7 @@ useEffect(() => {
               </div>
 
               {/* Stat strip */}
-              <div className="grid grid-cols-4 gap-3 lg:min-w-[440px]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 lg:min-w-[440px]">
                 {[
                   { label: 'Enrolled',  value: classroom.current_enrollment ?? 0, dark: true  },
                   { label: 'Capacity',  value: classroom.max_capacity,             dark: false },
@@ -1103,14 +1106,14 @@ useEffect(() => {
                 ].map((s) => (
                   <div
                     key={s.label}
-                    className={`rounded-2xl px-4 py-5 ${
+                    className={`rounded-2xl px-4 py-4 sm:py-5 ${
                       s.dark
                         ? 'bg-white shadow-xl'
                         : 'bg-white/[0.07] border border-white/[0.1]'
                     }`}
                   >
                     <p
-                      className={`text-[9px] font-bold tracking-[0.2em] uppercase mb-1.5 ${
+                      className={`text-[9px] font-bold tracking-[0.16em] sm:tracking-[0.2em] uppercase mb-1.5 whitespace-nowrap ${
                         s.dark ? 'text-gray-400' : 'text-white/35'
                       }`}
                     >
@@ -1130,7 +1133,7 @@ useEffect(() => {
             </div>
 
             {/* ── Tabs ── */}
-            <div className="flex overflow-x-auto border-t border-white/[0.08] -mx-6 lg:-mx-10 px-6 lg:px-10">
+            <div className="flex overflow-x-auto border-t border-white/[0.08] -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10">
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
@@ -1165,7 +1168,7 @@ useEffect(() => {
         {/* ══════════════════════════════════
             PAGE CONTENT
         ══════════════════════════════════ */}
-        <div className="max-w-7xl mx-auto px-6 lg:px-10 py-8">
+        <div className="max-w-7xl mx-auto sm:px-6 lg:px-10 py-5 sm:py-8">
 
           {/* ── OVERVIEW ── */}
           {activeTab === 'overview' && (
@@ -1176,7 +1179,7 @@ useEffect(() => {
 
                 {/* Details card */}
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                  <div className="px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
+                  <div className="px-4 sm:px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
                     <Building2 size={14} className="text-gray-400" />
                     <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
                       Classroom Details
@@ -1191,9 +1194,9 @@ useEffect(() => {
                       { label: 'Room Number',      value: classroom.room_number || '—' },
                       { label: 'Status',           value: classroom.is_active ? 'Active' : 'Inactive' },
                     ].map((row) => (
-                      <div key={row.label} className="flex items-center justify-between px-6 py-4">
+                      <div key={row.label} className="flex items-center justify-between gap-4 px-4 sm:px-6 py-4">
                         <span className="text-sm text-gray-400 font-medium">{row.label}</span>
-                        <span className="text-sm font-semibold text-gray-800">{row.value}</span>
+                        <span className="text-sm font-semibold text-gray-800 text-right break-words min-w-0">{row.value}</span>
                       </div>
                     ))}
                   </div>
@@ -1201,7 +1204,7 @@ useEffect(() => {
 
                 {/* Form teacher preview */}
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                  <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
+                  <div className="px-4 sm:px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
                     <div className="flex items-center gap-2.5">
                       <UserCog size={14} className="text-gray-400" />
                       <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
@@ -1215,17 +1218,17 @@ useEffect(() => {
                       Manage →
                     </button>
                   </div>
-                  <div className="p-6">
+                  <div className="p-4 sm:p-6">
                     {classroom.class_teacher_name ? (
-                      <div className="flex items-center gap-5">
+                      <div className="flex items-center gap-4 sm:gap-5">
                         <div
-                          className="w-14 h-14 rounded-2xl bg-gray-900 flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
+                          className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gray-900 flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
                           style={{ fontFamily: "'Cormorant Garamond', serif" }}
                         >
                           {getInitials(classroom.class_teacher_name)}
                         </div>
-                        <div>
-                          <p className="text-lg font-bold text-gray-900">
+                        <div className="min-w-0">
+                          <p className="text-lg font-bold text-gray-900 break-words">
                             {classroom.class_teacher_name}
                           </p>
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
@@ -1243,7 +1246,7 @@ useEffect(() => {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 py-2">
                         <p className="text-sm text-gray-300">
                           No {formTeacherLabel.toLowerCase()} assigned
                         </p>
@@ -1262,13 +1265,13 @@ useEffect(() => {
               {/* Right column — Enrollment */}
               <div className="space-y-6">
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                  <div className="px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
+                  <div className="px-4 sm:px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
                     <TrendingUp size={14} className="text-gray-400" />
                     <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
                       Enrollment
                     </span>
                   </div>
-                  <div className="p-6">
+                  <div className="p-4 sm:p-6">
                     <div className="mb-6">
                       <div className="flex justify-between text-sm font-medium text-gray-400 mb-2.5">
                         <span>{classroom.current_enrollment ?? 0} enrolled</span>
@@ -1411,22 +1414,27 @@ useEffect(() => {
               )}
 
               {!loadingStudents && filteredStudents.length > 0 && (
-                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto shadow-sm">
                   <table className="w-full text-sm border-collapse">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50">
-                        {['#', 'Student', 'Reg. No.', 'Gender', 'Status', 'Transfer'].map(
-                          (h) => (
-                            <th
-                              key={h}
-                              className={`px-6 py-4 text-[9px] font-bold tracking-[0.2em] uppercase text-gray-400 ${
-                                h === 'Transfer' ? 'text-center' : 'text-left'
-                              }`}
-                            >
-                              {h}
-                            </th>
-                          ),
-                        )}
+                        {/* On a phone only Student and Transfer stay as columns;
+                            the reg. number moves under the name. */}
+                        {[
+                          { h: '#',        cls: 'hidden sm:table-cell' },
+                          { h: 'Student',  cls: '' },
+                          { h: 'Reg. No.', cls: 'hidden md:table-cell' },
+                          { h: 'Gender',   cls: 'hidden md:table-cell' },
+                          { h: 'Status',   cls: 'hidden sm:table-cell' },
+                          { h: 'Transfer', cls: 'text-center' },
+                        ].map(({ h, cls }) => (
+                          <th
+                            key={h}
+                            className={`px-3 sm:px-6 py-4 text-[9px] font-bold tracking-[0.2em] uppercase text-gray-400 text-left ${cls}`}
+                          >
+                            {h}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -1439,31 +1447,34 @@ useEffect(() => {
                                 : 'hover:bg-gray-50/70'
                             }`}
                           >
-                            <td className="px-6 py-4 text-gray-300 text-xs font-mono w-12">
+                            <td className="hidden sm:table-cell px-6 py-4 text-gray-300 text-xs font-mono w-12">
                               {idx + 1}
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="px-3 sm:px-6 py-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gray-900 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                                   {student.full_name?.charAt(0) ?? '?'}
                                 </div>
-                                <div>
-                                  <p className="font-semibold text-gray-800">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-gray-800 break-words">
                                     {student.full_name}
                                   </p>
                                   {student.age && (
                                     <p className="text-xs text-gray-300">{student.age} yrs</p>
                                   )}
+                                  <p className="md:hidden text-[11px] text-gray-400 font-mono break-all">
+                                    {student.registration_number || student.username || '—'}
+                                  </p>
                                 </div>
                               </div>
                             </td>
-                            <td className="px-6 py-4 text-gray-400 text-xs font-mono">
+                            <td className="hidden md:table-cell px-6 py-4 text-gray-400 text-xs font-mono">
                               {student.registration_number || student.username || '—'}
                             </td>
-                            <td className="px-6 py-4 text-gray-400 text-sm capitalize">
+                            <td className="hidden md:table-cell px-6 py-4 text-gray-400 text-sm capitalize">
                               {student.gender || '—'}
                             </td>
-                            <td className="px-6 py-4">
+                            <td className="hidden sm:table-cell px-6 py-4">
                               <span
                                 className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wide ${
                                   student.is_active
@@ -1474,7 +1485,7 @@ useEffect(() => {
                                 {student.is_active ? 'Active' : 'Inactive'}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-center">
+                            <td className="px-3 sm:px-6 py-4 text-center">
                               <button
                                 onClick={() => {
                                   if (transferringStudent?.id === student.id) {
@@ -1487,7 +1498,7 @@ useEffect(() => {
                                     setTransferStatus('idle');
                                   }
                                 }}
-                                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-150 ${
+                                className={`inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all duration-150 ${
                                   transferringStudent?.id === student.id
                                     ? 'bg-gray-900 text-white'
                                     : 'bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white'
@@ -1501,16 +1512,16 @@ useEffect(() => {
 
                           {transferringStudent?.id === student.id && (
                             <tr className="bg-gray-50/80">
-                              <td colSpan={6} className="px-6 pb-5 pt-2">
-                                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-                                  <p className="text-xs font-bold tracking-[0.16em] uppercase text-gray-400 mb-4 flex items-center gap-2">
-                                    <ArrowRightLeft size={12} />
+                              <td colSpan={6} className="px-3 sm:px-6 pb-5 pt-2">
+                                <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-5 shadow-sm">
+                                  <p className="text-xs font-bold tracking-[0.16em] uppercase text-gray-400 mb-4 leading-relaxed">
+                                    <ArrowRightLeft size={12} className="inline -mt-0.5 mr-2" />
                                     Transfer{' '}
                                     <span className="text-gray-800">{student.full_name}</span>{' '}
                                     to another class or section
                                   </p>
-                                  <div className="flex gap-3 flex-wrap">
-                                    <div className="relative flex-1 min-w-[220px]">
+                                  <div className="flex flex-col sm:flex-row gap-3">
+                                    <div className="relative flex-1 min-w-0 sm:min-w-[220px]">
                                       <select
                                         value={targetClassroomId}
                                         onChange={(e) =>
@@ -1533,7 +1544,7 @@ useEffect(() => {
                                     <button
                                       onClick={handleTransfer}
                                       disabled={!targetClassroomId || transferring}
-                                      className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all duration-150 ${
+                                      className={`inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all duration-150 ${
                                         !targetClassroomId || transferring
                                           ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                                           : 'bg-gray-900 text-white hover:bg-gray-700 shadow-sm cursor-pointer'
@@ -1613,15 +1624,15 @@ useEffect(() => {
                 (classroom.education_level ?? '').toUpperCase(),
               ) &&
                 classroom.class_teacher_name) && (
-                <div className="flex items-center gap-5 p-6 rounded-2xl bg-gray-900 shadow-xl">
+                <div className="flex items-center gap-4 sm:gap-5 p-4 sm:p-6 rounded-2xl bg-gray-900 shadow-xl">
                   <div
-                    className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center text-white text-2xl font-bold flex-shrink-0"
+                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/15 flex items-center justify-center text-white text-2xl font-bold flex-shrink-0"
                     style={{ fontFamily: "'Cormorant Garamond', serif" }}
                   >
                     {getInitials(classroom.class_teacher_name)}
                   </div>
-                  <div>
-                    <p className="font-bold text-white text-lg">
+                  <div className="min-w-0">
+                    <p className="font-bold text-white text-lg break-words">
                       {classroom.class_teacher_name}
                     </p>
                     <p className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/40 mt-0.5">
@@ -1641,13 +1652,13 @@ useEffect(() => {
                   {classroom.teacher_assignments.map((assignment) => (
                     <div
                       key={assignment.id}
-                      className="group flex items-start justify-between gap-4 p-5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md transition-all duration-200"
+                      className="group flex items-start justify-between gap-4 p-4 sm:p-5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-gray-300 hover:shadow-md transition-all duration-200"
                     >
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-start gap-4 min-w-0">
                         <div className="w-12 h-12 rounded-2xl bg-gray-900 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
                           {(assignment.teacher_first_name ?? '?').charAt(0)}
                         </div>
-                        <div>
+                        <div className="min-w-0 break-words">
                           <p className="text-sm font-bold text-gray-800">
                             {assignment.teacher_first_name} {assignment.teacher_last_name}
                           </p>
@@ -1688,7 +1699,7 @@ useEffect(() => {
           {/* ── FORM TEACHER ── */}
           {activeTab === 'form-teacher' && (
             <div className="max-w-2xl space-y-5">
-              <div className="flex items-start gap-3 px-5 py-4 rounded-2xl bg-blue-50 border border-blue-100">
+              <div className="flex items-start gap-3 px-4 sm:px-5 py-4 rounded-2xl bg-blue-50 border border-blue-100">
                 <UserCog size={17} className="text-blue-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-bold text-blue-700 mb-1">{formTeacherLabel} Role</p>
@@ -1721,7 +1732,7 @@ useEffect(() => {
 
               {/* Current assignment */}
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-                <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
+                <div className="px-4 sm:px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
                   <div className="flex items-center gap-2.5">
                     <BadgeCheck size={14} className="text-gray-400" />
                     <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
@@ -1742,18 +1753,18 @@ useEffect(() => {
                     </button>
                   )}
                 </div>
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                   {classroom.class_teacher_name ? (
-                    <div className="flex items-start gap-6">
+                    <div className="flex items-start gap-4 sm:gap-6">
                       <div
-                        className="w-20 h-20 rounded-2xl bg-gray-900 flex items-center justify-center text-white text-3xl font-bold flex-shrink-0"
+                        className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl bg-gray-900 flex items-center justify-center text-white text-2xl sm:text-3xl font-bold flex-shrink-0"
                         style={{ fontFamily: "'Cormorant Garamond', serif" }}
                       >
                         {getInitials(classroom.class_teacher_name)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p
-                          className="text-2xl font-bold text-gray-900 leading-tight"
+                          className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight break-words"
                           style={{ fontFamily: "'Cormorant Garamond', serif" }}
                         >
                           {classroom.class_teacher_name}
@@ -1828,7 +1839,7 @@ useEffect(() => {
               {/* Edit panel */}
               {isEditingFormTeacher && (
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                  <div className="px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
+                  <div className="px-4 sm:px-6 py-4 flex items-center gap-2.5 border-b border-gray-100 bg-gray-50">
                     <Pencil size={14} className="text-gray-400" />
                     <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">
                       {classroom.class_teacher
@@ -1836,7 +1847,7 @@ useEffect(() => {
                         : `Assign ${formTeacherLabel}`}
                     </span>
                   </div>
-                  <div className="p-6 space-y-5">
+                  <div className="p-4 sm:p-6 space-y-5">
                     <div>
                       <label className="block text-xs font-bold text-gray-500 mb-2.5 tracking-wide uppercase">
                         Select Teacher
@@ -1937,7 +1948,7 @@ useEffect(() => {
         </div>
 
         {/* Footer */}
-        <div className="max-w-7xl mx-auto px-6 lg:px-10 pb-8">
+        <div className="max-w-7xl mx-auto sm:px-6 lg:px-10 pb-8">
           <p className="text-xs text-gray-300 font-medium">
             Last updated{' '}
             {new Date(classroom.updated_at).toLocaleDateString('en-GB', {
