@@ -157,6 +157,14 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         tenant = request.tenant
         dashboard_data = []
 
+        # Results reach a parent only when the admin has released the
+        # Academics tab, and then only published ones. Staff previewing a
+        # parent's dashboard see what that parent would see.
+        tenant_settings = getattr(tenant, "settings", None)
+        academics_visible = bool(
+            tenant_settings and tenant_settings.academics_tab_enabled
+        )
+
         for student in students_filtered:
             attendance_records = Attendance.objects.filter(
                 student=student, tenant=tenant)
@@ -168,11 +176,15 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 else 0
             )
 
+            published_results = (
+                StudentResult.objects.filter(
+                    student=student, tenant=tenant, status="PUBLISHED"
+                )
+                if academics_visible
+                else StudentResult.objects.none()
+            )
             avg_score = (
-                StudentResult.objects.filter(student=student, tenant=tenant).aggregate(
-                    avg=Avg("percentage")
-                )["avg"]
-                or 0
+                published_results.aggregate(avg=Avg("percentage"))["avg"] or 0
             )
 
             recent_attendance = attendance_records.order_by("-date")[:5]
@@ -181,9 +193,9 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 for att in recent_attendance
             ]
 
-            recent_results = StudentResult.objects.filter(student=student, tenant=tenant).order_by(
-                "-created_at"
-            )[:5]
+            recent_results = published_results.select_related(
+                "subject", "exam_session"
+            ).order_by("-created_at")[:5]
             result_list = [
                 {
                     "subject": res.subject.name if res.subject else "N/A",
@@ -201,11 +213,19 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                     "average_score": round(avg_score, 2),
                     "recent_attendance": attendance_list,
                     "recent_results": result_list,
-                    "alert": "Low performance" if avg_score < 50 else None,
+                    # No results to judge on is not low performance.
+                    "alert": (
+                        "Low performance"
+                        if result_list and avg_score < 50
+                        else None
+                    ),
                 }
             )
 
-        return Response({"dashboard": dashboard_data})
+        return Response({
+            "dashboard": dashboard_data,
+            "academics_visible": academics_visible,
+        })
 
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):

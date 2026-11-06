@@ -62,6 +62,9 @@ const StudentPortal = () => {
   const navigate = useNavigate();
 
   const isStudentPortalEnabled = settings?.student_portal_enabled !== false;
+  // The admin releases the Academics tab (Settings → Portal access). Off
+  // unless switched on; even then the backend only returns published results.
+  const isAcademicsEnabled = settings?.academics_tab_enabled === true;
 
   // Navigation state
   // ?section=cbt lets the exam page send a student back to their exams list.
@@ -196,7 +199,7 @@ const StudentPortal = () => {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'portal', label: 'Portal', icon: GraduationCap },
     { id: 'profile', label: 'Profile', icon: User },
-    { id: 'academics', label: 'Academics', icon: GraduationCap },
+    ...(isAcademicsEnabled ? [{ id: 'academics', label: 'Academics', icon: GraduationCap }] : []),
     { id: 'cbt', label: 'CBT Exams', icon: Monitor },
     { id: 'schedule', label: 'Schedule', icon: Calendar },
     { id: 'assignments', label: 'Assignments', icon: BookOpen },
@@ -425,7 +428,8 @@ const StudentPortal = () => {
             ) : activeSection === 'schedule' ? (
               <StudentLessons />
             ) : activeSection === 'academics' ? (
-              <StudentAcademics />
+              // Reachable by ?section=academics even with the tab hidden.
+              isAcademicsEnabled ? <StudentAcademics /> : <AcademicsLockedMessage />
             ) : activeSection === 'cbt' ? (
               <StudentCBTExams />
             ) : activeSection === 'grades' ? (
@@ -631,6 +635,19 @@ const DisabledPortalMessage = ({ onGoHome, onLogout }: { onGoHome: () => void; o
         Logout
       </button>
     </div>
+  </div>
+);
+
+// Academics tab not yet released by the school
+const AcademicsLockedMessage = () => (
+  <div className="bg-white dark:bg-gray-900 rounded-xl p-10 shadow-lg border border-gray-200 dark:border-gray-800 text-center">
+    <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-6">
+      <GraduationCap className="text-gray-500 dark:text-gray-400" size={32} />
+    </div>
+    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Academics not available yet</h2>
+    <p className="text-gray-600 dark:text-gray-400 max-w-md mx-auto">
+      Your school hasn't released results here yet. Please check back later.
+    </p>
   </div>
 );
 

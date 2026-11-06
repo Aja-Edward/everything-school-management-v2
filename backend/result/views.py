@@ -459,12 +459,12 @@ def _apply_role_filter(queryset, viewset, user):
         except Student.DoesNotExist:
             return queryset.none()
     if role in ("PARENT", "parent"):
-        try:
-            Parent = apps.get_model("parent", "Parent")
-            parent = Parent.objects.get(user=user)
-            return queryset.filter(student__parents=parent, status=PUBLISHED)
-        except Exception:
+        # ParentProfile: there is no "Parent" model, so the old lookup always
+        # failed and parents never saw a result.
+        parent = getattr(user, "parent_profile", None)
+        if parent is None:
             return queryset.none()
+        return queryset.filter(student__parents=parent, status=PUBLISHED)
     return queryset.none()
 
 
@@ -523,17 +523,23 @@ def _apply_report_role_filter(queryset, viewset, user):
             return queryset.filter(student_id__in=student_ids)
         except Exception:
             return queryset.none()
+    # Students and parents see a report card only once the admin has
+    # published it. This used to return drafts too, so a report showed in
+    # the student's Academics tab the moment a teacher started it.
     if role in ("STUDENT", "student"):
         try:
-            return queryset.filter(student=Student.objects.get(user=user))
+            return queryset.filter(
+                student=Student.objects.get(user=user), status=PUBLISHED
+            )
         except Student.DoesNotExist:
             return queryset.none()
     if role in ("PARENT", "parent"):
-        try:
-            parent = apps.get_model("parent", "Parent").objects.get(user=user)
-            return queryset.filter(student__parents=parent)
-        except Exception:
+        # The model is ParentProfile; looking up "Parent" raised LookupError,
+        # which the except swallowed, so parents never saw any report.
+        parent = getattr(user, "parent_profile", None)
+        if parent is None:
             return queryset.none()
+        return queryset.filter(student__parents=parent, status=PUBLISHED)
     return queryset.none()
 
 

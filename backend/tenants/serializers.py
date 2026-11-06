@@ -270,6 +270,7 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "student_portal_enabled",
             "teacher_portal_enabled",
             "parent_portal_enabled",
+            "academics_tab_enabled",
             "show_position_on_result",
             "show_class_average_on_result",
             "require_token_for_result",

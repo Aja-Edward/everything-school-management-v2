@@ -815,7 +815,7 @@ import {
   Save, X, Upload, Star, Sparkles,
   Loader2, CheckCircle, AlertCircle,
   Image as ImageIcon, Radio, LayoutTemplate,
-  Zap, Bell
+  Zap, Bell, GraduationCap
 } from 'lucide-react';
 import api, { API_BASE_URL, buildUploadHeaders } from '@/services/api';
 
@@ -910,14 +910,14 @@ const Toast: React.FC<{ msg: string; type: 'success' | 'error'; onClose: () => v
 // ─── Portal Settings ──────────────────────────────────────────────────────────
 
 const PortalSettings: React.FC = () => {
-  const [ps, setPs] = useState({ student_portal_enabled: true, teacher_portal_enabled: true, parent_portal_enabled: true });
+  const [ps, setPs] = useState({ student_portal_enabled: true, teacher_portal_enabled: true, parent_portal_enabled: true, academics_tab_enabled: false });
   const [orig, setOrig] = useState(ps);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     api.get('/school-settings/school-settings/').then((d: any) => {
-      const s = { student_portal_enabled: d.student_portal_enabled ?? true, teacher_portal_enabled: d.teacher_portal_enabled ?? true, parent_portal_enabled: d.parent_portal_enabled ?? true };
+      const s = { student_portal_enabled: d.student_portal_enabled ?? true, teacher_portal_enabled: d.teacher_portal_enabled ?? true, parent_portal_enabled: d.parent_portal_enabled ?? true, academics_tab_enabled: d.academics_tab_enabled ?? false };
       setPs(s); setOrig(s);
     }).catch(() => {});
   }, []);
@@ -957,6 +957,25 @@ const PortalSettings: React.FC = () => {
             <Toggle checked={ps[p.key]} onChange={v => setPs(s => ({ ...s, [p.key]: v }))} label={`Enable ${p.label}`} desc={p.desc} />
           </div>
         ))}
+      </div>
+
+      {/* Academics tab release -- separate from publishing, so a school can
+          publish results and still choose when students and parents see them. */}
+      <div className="p-5 rounded-xl border border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between mb-3">
+          <span className="font-semibold text-sm text-gray-800 flex items-center gap-1.5">
+            <GraduationCap className="w-4 h-4 text-gray-500" />Academics tab (students &amp; parents)
+          </span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ps.academics_tab_enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+            {ps.academics_tab_enabled ? 'Visible' : 'Hidden'}
+          </span>
+        </div>
+        <Toggle
+          checked={ps.academics_tab_enabled}
+          onChange={v => setPs(s => ({ ...s, academics_tab_enabled: v }))}
+          label="Allow students and parents to view academic results"
+          desc="Shows the Academics tab in the student portal and Academic Results on the parent dashboard. Only results you have approved and published appear there, and only while this is on."
+        />
       </div>
 
       {changed && (

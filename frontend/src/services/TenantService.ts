@@ -103,6 +103,7 @@ export interface TenantSettings {
   student_portal_enabled: boolean;
   teacher_portal_enabled: boolean;
   parent_portal_enabled: boolean;
+  academics_tab_enabled?: boolean;
   show_position_on_result: boolean;
   show_class_average_on_result: boolean;
   require_token_for_result: boolean;
@@ -132,6 +133,7 @@ export interface PublicTenantSettings {
   student_portal_enabled: boolean;
   teacher_portal_enabled: boolean;
   parent_portal_enabled: boolean;
+  academics_tab_enabled?: boolean;
 }
 
 export interface SchoolRegistrationData {
@@ -460,6 +462,7 @@ class TenantService {
       student_portal_enabled: boolean;
       teacher_portal_enabled: boolean;
       parent_portal_enabled: boolean;
+      academics_tab_enabled?: boolean;
     };
   }> {
     return this.getPublicTenant(slug);

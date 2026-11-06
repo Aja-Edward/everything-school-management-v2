@@ -42,6 +42,8 @@ interface StudentData {
 
 interface DashboardResponse {
   dashboard: StudentData[];
+  /** False until the admin releases the Academics tab to students & parents. */
+  academics_visible?: boolean;
 }
 
 /** "Ada Okafor" -> "Ada", for buttons like "Hand in for Ada". */
@@ -50,6 +52,7 @@ const firstName = (fullName: string) => fullName.trim().split(/\s+/)[0] || fullN
 const ParentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<StudentData[]>([]);
+  const [academicsVisible, setAcademicsVisible] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<number | null>(null);
   const [assignmentGroups, setAssignmentGroups] = useState<ChildAssignmentGroup[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
@@ -68,6 +71,7 @@ const ParentDashboard = () => {
       setLoading(true);
       const response = await api.get<DashboardResponse>('/api/parents/dashboard/');
       setDashboardData(response.dashboard || []);
+      setAcademicsVisible(response.academics_visible === true);
 
       // Auto-select first student if available
       if (response.dashboard && response.dashboard.length > 0) {
@@ -218,7 +222,8 @@ const ParentDashboard = () => {
             </CardContent>
           </Card>
 
-          {/* Academic Performance Card */}
+          {/* Academic Performance Card -- only once the school releases results */}
+          {academicsVisible && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
@@ -241,6 +246,7 @@ const ParentDashboard = () => {
               </p>
             </CardContent>
           </Card>
+          )}
 
           {/* Student Info Card */}
           <Card className="md:col-span-2 lg:col-span-1">
@@ -267,7 +273,7 @@ const ParentDashboard = () => {
         <Tabs defaultValue={openOnFees ? 'fees' : 'attendance'} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:w-auto">
             <TabsTrigger value="attendance">Attendance</TabsTrigger>
-            <TabsTrigger value="results">Academic Results</TabsTrigger>
+            {academicsVisible && <TabsTrigger value="results">Academic Results</TabsTrigger>}
             <TabsTrigger value="assignments">
               Assignments{upcomingCount > 0 ? ` (${upcomingCount})` : ''}
             </TabsTrigger>
@@ -350,6 +356,7 @@ const ParentDashboard = () => {
           </TabsContent>
 
           {/* Results Tab */}
+          {academicsVisible && (
           <TabsContent value="results">
             <Card>
               <CardHeader>
@@ -398,6 +405,7 @@ const ParentDashboard = () => {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
         </Tabs>
       </div>
     </ParentLayout>

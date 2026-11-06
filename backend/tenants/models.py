@@ -961,6 +961,11 @@ class TenantSettings(models.Model):
     student_portal_enabled = models.BooleanField(default=True)
     teacher_portal_enabled = models.BooleanField(default=True)
     parent_portal_enabled = models.BooleanField(default=True)
+    # The Academics tab (student portal) and Academic Results (parent
+    # dashboard). Off until the admin releases it: even published results
+    # stay out of these tabs while this is off. Only published results
+    # ever show there, whatever this is set to.
+    academics_tab_enabled = models.BooleanField(default=False)
 
     # Result Settings
     show_position_on_result = models.BooleanField(default=True)

@@ -274,6 +274,7 @@ class PublicTenantView(APIView):
                 "student_portal_enabled": settings_obj.student_portal_enabled,
                 "teacher_portal_enabled": settings_obj.teacher_portal_enabled,
                 "parent_portal_enabled": settings_obj.parent_portal_enabled,
+                "academics_tab_enabled": settings_obj.academics_tab_enabled,
             }
 
         return Response({
@@ -325,6 +326,7 @@ class PublicTenantByDomainView(APIView):
                 'student_portal_enabled': settings_obj.student_portal_enabled,
                 'teacher_portal_enabled': settings_obj.teacher_portal_enabled,
                 'parent_portal_enabled': settings_obj.parent_portal_enabled,
+                'academics_tab_enabled': settings_obj.academics_tab_enabled,
             }
         return Response({
             'tenant': {

@@ -173,6 +173,7 @@ class SchoolSettingsDetail(APIView):
             "student_portal_enabled": tenant_settings.student_portal_enabled,
             "teacher_portal_enabled": tenant_settings.teacher_portal_enabled,
             "parent_portal_enabled": tenant_settings.parent_portal_enabled,
+            "academics_tab_enabled": tenant_settings.academics_tab_enabled,
             # Result Settings
             "show_position_on_result": tenant_settings.show_position_on_result,
             "show_class_average_on_result": tenant_settings.show_class_average_on_result,
@@ -350,6 +351,7 @@ class SchoolSettingsDetail(APIView):
                 "student_portal_enabled": "student_portal_enabled",
                 "teacher_portal_enabled": "teacher_portal_enabled",
                 "parent_portal_enabled": "parent_portal_enabled",
+                "academics_tab_enabled": "academics_tab_enabled",
 
                 # Result Settings
                 "show_position_on_result": "show_position_on_result",

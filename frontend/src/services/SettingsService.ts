@@ -23,6 +23,7 @@ export interface SchoolSettings {
   student_portal_enabled: boolean;
   teacher_portal_enabled: boolean;
   parent_portal_enabled: boolean;
+  academics_tab_enabled?: boolean;
   notifications: any;
   paymentGateways: any;
   userRolePaymentAccess: any;
@@ -141,6 +142,7 @@ class SettingsService {
       if (settings.student_portal_enabled !== undefined) backendSettings.student_portal_enabled = settings.student_portal_enabled;
       if (settings.teacher_portal_enabled !== undefined) backendSettings.teacher_portal_enabled = settings.teacher_portal_enabled;
       if (settings.parent_portal_enabled !== undefined) backendSettings.parent_portal_enabled = settings.parent_portal_enabled;
+      if (settings.academics_tab_enabled !== undefined) backendSettings.academics_tab_enabled = settings.academics_tab_enabled;
       
       // Registration Settings
       if (settings.allowSelfRegistration !== undefined) backendSettings.allow_student_registration = settings.allowSelfRegistration;
@@ -345,6 +347,7 @@ async getClassrooms(): Promise<Classroom[]> {
       student_portal_enabled: response.student_portal_enabled ?? true,
       teacher_portal_enabled: response.teacher_portal_enabled ?? true, 
       parent_portal_enabled: response.parent_portal_enabled ?? true,
+      academics_tab_enabled: response.academics_tab_enabled ?? false,
       
       // Registration
       allowSelfRegistration: response.allow_student_registration ?? true,
@@ -529,6 +532,7 @@ async getClassrooms(): Promise<Classroom[]> {
       student_portal_enabled: true,
       teacher_portal_enabled: true, 
       parent_portal_enabled: true, 
+      academics_tab_enabled: false,
       notifications: {
         email: {
           enabled: true,
