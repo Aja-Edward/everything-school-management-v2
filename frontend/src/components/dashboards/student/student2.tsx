@@ -49,6 +49,8 @@ interface StudentRecord {
   full_name: string;
   username: string;
   student_class: string;
+  /** Class and section, e.g. "Primary 3 Silver" (student_class is the class id). */
+  classroom?: string;
   education_level: string;
   profile_picture?: string;
   user: number;
@@ -353,7 +355,7 @@ const StudentPortal = () => {
                     )}
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-sm text-gray-900 dark:text-white truncate">{studentRecord.full_name}</h3>
-                      <p className="text-xs text-gray-600 dark:text-gray-400">{studentRecord.student_class}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">{studentRecord.classroom || studentRecord.student_class}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs bg-white dark:bg-gray-900 rounded-lg px-3 py-2 border border-gray-200 dark:border-gray-700">
@@ -486,7 +488,7 @@ const PortalContent = ({
                   {studentRecord.full_name} • ID: {studentRecord.id}
                 </p>
                 <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                  {studentRecord.student_class} • {studentRecord.education_level}
+                  {studentRecord.classroom || studentRecord.student_class} • {studentRecord.education_level}
                 </p>
               </div>
               <button
@@ -541,7 +543,7 @@ const PortalContent = ({
                   </div>
                   <div className="bg-white/10 rounded-lg px-3 py-2">
                     <p className="text-white/70 text-xs mb-1">Class & Level</p>
-                    <p className="font-medium text-white">{studentRecord.student_class} • {studentRecord.education_level}</p>
+                    <p className="font-medium text-white">{studentRecord.classroom || studentRecord.student_class} • {studentRecord.education_level}</p>
                   </div>
                 </div>
                 <p className="text-xs text-white/70 mt-3">

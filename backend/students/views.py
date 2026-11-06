@@ -343,9 +343,15 @@ def get_my_classroom_for_result(request):
     # Try to find the Classroom record via the student's section
     classroom_data = None
     if student.section:
+        # The classroom they're enrolled in, when it is their section's (a
+        # section can have more than one classroom); else any active one.
         classroom = (
             Classroom.objects.select_related("section")
             .filter(section=student.section, is_active=True)
+            .annotate(enrolled=Count(
+                "studentenrollment",
+                filter=Q(studentenrollment__student=student, studentenrollment__is_active=True)))
+            .order_by("-enrolled", "-academic_session__is_current", "-term__is_current", "id")
             .first()
         )
         if classroom:
@@ -1581,6 +1587,9 @@ class StudentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVi
             "student_info": {
                 "name": student.full_name,
                 "class": student.student_class.name if student.student_class else "",
+                # Class and section ("Primary 3 Silver"): "class" alone doesn't
+                # change when a student moves to another section.
+                "classroom": student.classroom,
                 "education_level": student.education_level_display,
                 "registration_number": student.registration_number,
                 "admission_date": (

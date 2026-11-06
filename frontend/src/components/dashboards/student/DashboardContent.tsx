@@ -6,6 +6,8 @@ interface DashboardData {
   student_info: {
     name: string;
     class: string;
+    /** Class and section, e.g. "Primary 3 Silver". */
+    classroom?: string;
     education_level: string;
     registration_number: string;
     admission_date?: string;
@@ -177,7 +179,7 @@ const DashboardContent = () => {
               Welcome back, {studentInfo.name || 'Student'}!
             </h1>
             <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base">
-              {studentInfo.class || 'N/A'} • {studentInfo.education_level || 'N/A'}
+              {studentInfo.classroom || studentInfo.class || 'N/A'} •{studentInfo.education_level || 'N/A'}
             </p>
           </div>
           <div className="flex gap-3">

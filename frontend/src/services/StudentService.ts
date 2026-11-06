@@ -362,6 +362,8 @@ export interface StudentDashboard {
   student_info: {
     name: string;
     class: string;
+    /** Class and section, e.g. "Primary 3 Silver". */
+    classroom?: string;
     education_level: string;
     registration_number: string;
     admission_date?: string;

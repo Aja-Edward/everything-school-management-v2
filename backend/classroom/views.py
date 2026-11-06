@@ -52,6 +52,7 @@ from .serializers import (
 from teacher.serializers import TeacherSerializer
 from common.admin_access import admin_level_access
 from .subject_teaching import give_all_subjects
+from .student_placement import student_fields_for_classroom
 from subject.serializers import SubjectSerializer, SubjectEducationLevelSerializer
 from subject.models import (
     SUBJECT_CATEGORY_CHOICES,
@@ -1213,20 +1214,7 @@ class ClassroomViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.Model
 
             target_section = target_classroom.section
             target_class = target_section.class_grade
-            student_fields = {
-                "student_class": target_class,
-                "section": target_section,
-            }
-            if target_classroom.stream_id:
-                student_fields["stream"] = target_classroom.stream
-            elif (
-                student.stream_id
-                and student.student_class_id != target_class.id
-                and student.stream.grade_level_id not in (None, target_class.grade_level_id)
-            ):
-                # A stream belongs to one grade level; don't carry an SSS 1
-                # stream into SSS 2.
-                student_fields["stream"] = None
+            student_fields = student_fields_for_classroom(student, target_classroom)
 
             with transaction.atomic():
                 # Deactivate current enrollment
