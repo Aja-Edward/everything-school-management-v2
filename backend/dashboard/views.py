@@ -17,6 +17,11 @@ from attendance.models import Attendance
 from classroom.models import Classroom
 from exam.models import Exam
 from result.models import StudentResult
+from result.family_access import (
+    academics_released,
+    family_result_summary,
+    family_visible_results,
+)
 from schoolSettings.models import SchoolAnnouncement
 from classroom.models import ClassroomTeacherAssignment
 from fee.models import Payment, FeeStructure, StudentFee
@@ -444,11 +449,9 @@ def parent_dashboard_summary(request, parent_id=None):
     """
 
     try:
-        # Get parent ID
-        if not parent_id:
-            parent_id = get_parent_id_from_user(request.user)
-            if not parent_id:
-                return Response({"error": "Parent profile not found"}, status=404)
+        parent_id, refusal = _parent_id_for(request, parent_id)
+        if refusal:
+            return refusal
 
         # ============================================
         # 🚀 OPTIMIZED QUERY: Prefetch all children data
@@ -518,19 +521,16 @@ def parent_dashboard_summary(request, parent_id=None):
                     )[:5]
                 )
 
-            # Recent results (last 5)
-            recent_results = (
-                StudentResult.objects.filter(tenant=tenant, student=child)
-                .select_related("exam_session__subject")
-                .order_by("-exam_session__exam_date")
-                .values(
-                    "id",
-                    "exam_session__subject__name",
-                    "exam_session__exam_date",
-                    "total_score",
-                    "grade",
+            # Recent results (last 5): published only, and only once the
+            # admin has released the Academics tab. This used to return every
+            # result, drafts included, and named fields ExamSession doesn't
+            # have, so it errored.
+            recent_results = [
+                family_result_summary(res)
+                for res in family_visible_results(tenant, child).order_by(
+                    "-created_at"
                 )[:5]
-            )
+            ]
 
             children_data.append(
                 {
@@ -542,7 +542,7 @@ def parent_dashboard_summary(request, parent_id=None):
                         attendance_today["status"] if attendance_today else "not_marked"
                     ),
                     "todays_schedule": list(todays_lessons),
-                    "recent_results": list(recent_results),
+                    "recent_results": recent_results,
                 }
             )
 
@@ -560,6 +560,7 @@ def parent_dashboard_summary(request, parent_id=None):
                 "phone": getattr(parent, "phone", None),
             },
             "children": children_data,
+            "academics_visible": academics_released(tenant),
             "stats": {
                 "total_children": len(children),
             },
@@ -896,10 +897,9 @@ def parent_dashboard_extended(request, parent_id=None):
     """
     try:
         tenant = request.tenant
-        if not parent_id:
-            parent_id = get_parent_id_from_user(request.user)
-            if not parent_id:
-                return Response({"error": "Parent profile not found"}, status=404)
+        parent_id, refusal = _parent_id_for(request, parent_id)
+        if refusal:
+            return refusal
 
         # Get all children
         children = Student.objects.filter(
@@ -1559,13 +1559,33 @@ def get_teacher_id_from_user(user):
 
 def get_parent_id_from_user(user):
     """Get parent ID from user object"""
-    tenant = request.tenant  # Assuming tenant is available in the request context
-
-    if hasattr(user, "parent_profile"):
-        return user.parent_profile.id
-
-    parent = ParentProfile.objects.filter(tenant=tenant, user=user).first()
+    # This used to read request.tenant, but "request" here is the urllib
+    # module imported at the top of the file, so every parent dashboard
+    # call without an id failed with a 500. A ParentProfile is one per user.
+    parent = ParentProfile.objects.filter(user=user).first()
     return parent.id if parent else None
+
+
+def _parent_id_for(request, parent_id):
+    """
+    The parent whose dashboard this request may load, or a refusal.
+
+    Without an id: the signed-in parent's own. With an id: only staff may
+    look at another parent's dashboard -- it lists that parent's children,
+    their timetable and their results.
+    """
+    own_id = get_parent_id_from_user(request.user)
+    if not parent_id:
+        if not own_id:
+            return None, Response({"error": "Parent profile not found"}, status=404)
+        return own_id, None
+    user = request.user
+    if int(parent_id) != own_id and not (user.is_staff or user.is_superuser):
+        return None, Response(
+            {"error": "You do not have access to this parent's dashboard."},
+            status=403,
+        )
+    return parent_id, None
 
 
 def get_student_id_from_user(user):

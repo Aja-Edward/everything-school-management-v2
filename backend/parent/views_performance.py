@@ -3,7 +3,11 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, PermissionDenied
 from attendance.models import Attendance
-from result.models import StudentResult
+from result.family_access import (
+    academics_released,
+    family_result_summary,
+    family_visible_results,
+)
 from students.models import Student
 from django.db import models
 
@@ -19,13 +23,16 @@ class StudentDetailView(APIView):
             raise NotFound("Parent profile not found.")
 
         # Confirm student belongs to this parent
-        if not parent_profile.students.filter(id=student_id).exists():
+        if not parent_profile.students.filter(
+            id=student_id, tenant=request.tenant
+        ).exists():
             raise PermissionDenied("You do not have access to this student's data.")
 
         student = Student.objects.get(id=student_id)
 
         # Gather attendance & result data
-        attendance_records = Attendance.objects.filter(student=student)
+        attendance_records = Attendance.objects.filter(
+            student=student, tenant=request.tenant)
         total_attendance = attendance_records.count()
         present_count = attendance_records.filter(status="present").count()
         attendance_percentage = (
@@ -34,35 +41,27 @@ class StudentDetailView(APIView):
             else 0
         )
 
-        avg_score = (
-            StudentResult.objects.filter(student=student).aggregate(
-                avg=models.Avg("score")
-            )["avg"]
-            or 0
-        )
+        # Results only once the admin has released the Academics tab, and
+        # then only published ones (the same rule as the parent dashboard).
+        # This used to read fields StudentResult doesn't have (score, exam),
+        # so it errored -- and it took drafts too.
+        results = family_visible_results(request.tenant, student)
+        avg_score = results.aggregate(avg=models.Avg("percentage"))["avg"] or 0
 
-        recent_attendance = attendance_records.order_by("-attendance_date")[:5]
+        recent_attendance = attendance_records.order_by("-date")[:5]
         attendance_list = [
-            {"date": att.attendance_date, "status": att.status}
+            {"date": str(att.date), "status": att.status}
             for att in recent_attendance
         ]
 
-        recent_results = StudentResult.objects.filter(student=student).order_by(
-            "-exam__exam_date"
-        )[:5]
         result_list = [
-            {
-                "subject": (
-                    res.exam.subject.name if res.exam and res.exam.subject else "N/A"
-                ),
-                "score": res.score,
-                "exam_date": res.exam.exam_date if res.exam else None,
-            }
-            for res in recent_results
+            family_result_summary(res)
+            for res in results.order_by("-created_at")[:5]
         ]
 
         data = {
             "student": str(student),
+            "academics_visible": academics_released(request.tenant),
             "attendance_percentage": attendance_percentage,
             "average_score": round(avg_score, 2),
             "recent_attendance": attendance_list,

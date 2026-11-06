@@ -35,6 +35,7 @@ from utils.section_filtering import AutoSectionFilterMixin, SectionFilterMixin
 from utils.signature_handler import upload_signature_to_cloudinary
 from utils.teacher_portal_permissions import TeacherPortalCheckMixin
 
+from .family_access import academics_released
 from .filters import StudentTermResultFilter
 from .models import (
     TraitField,
@@ -462,7 +463,8 @@ def _apply_role_filter(queryset, viewset, user):
         # ParentProfile: there is no "Parent" model, so the old lookup always
         # failed and parents never saw a result.
         parent = getattr(user, "parent_profile", None)
-        if parent is None:
+        if parent is None or not academics_released(tenant):
+            # Hidden from parents until the admin releases the Academics tab.
             return queryset.none()
         return queryset.filter(student__parents=parent, status=PUBLISHED)
     return queryset.none()
@@ -537,7 +539,8 @@ def _apply_report_role_filter(queryset, viewset, user):
         # The model is ParentProfile; looking up "Parent" raised LookupError,
         # which the except swallowed, so parents never saw any report.
         parent = getattr(user, "parent_profile", None)
-        if parent is None:
+        if parent is None or not academics_released(tenant):
+            # Hidden from parents until the admin releases the Academics tab.
             return queryset.none()
         return queryset.filter(student__parents=parent, status=PUBLISHED)
     return queryset.none()

@@ -19,7 +19,11 @@ from .serializers import ParentProfileSerializer
 from .permissions import IsParent, IsParentOrAdmin
 
 from attendance.models import Attendance
-from result.models import StudentResult
+from result.family_access import (
+    academics_released,
+    family_result_summary,
+    family_visible_results,
+)
 from users.models import CustomUser
 
 logger = logging.getLogger(__name__)
@@ -160,10 +164,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
         # Results reach a parent only when the admin has released the
         # Academics tab, and then only published ones. Staff previewing a
         # parent's dashboard see what that parent would see.
-        tenant_settings = getattr(tenant, "settings", None)
-        academics_visible = bool(
-            tenant_settings and tenant_settings.academics_tab_enabled
-        )
+        academics_visible = academics_released(tenant)
 
         for student in students_filtered:
             attendance_records = Attendance.objects.filter(
@@ -176,13 +177,7 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 else 0
             )
 
-            published_results = (
-                StudentResult.objects.filter(
-                    student=student, tenant=tenant, status="PUBLISHED"
-                )
-                if academics_visible
-                else StudentResult.objects.none()
-            )
+            published_results = family_visible_results(tenant, student)
             avg_score = (
                 published_results.aggregate(avg=Avg("percentage"))["avg"] or 0
             )
@@ -193,17 +188,10 @@ class ParentViewSet(TenantFilterMixin, AutoSectionFilterMixin, viewsets.ModelVie
                 for att in recent_attendance
             ]
 
-            recent_results = published_results.select_related(
-                "subject", "exam_session"
-            ).order_by("-created_at")[:5]
-            result_list = [
-                {
-                    "subject": res.subject.name if res.subject else "N/A",
-                    "score": res.percentage,
-                    "exam_date": str(res.exam_session) if res.exam_session else None,
-                }
-                for res in recent_results
-            ]
+            recent_results = published_results.order_by("-created_at")[:5]
+            # Each with its term and session, so a parent can tell which
+            # term's result they are looking at.
+            result_list = [family_result_summary(res) for res in recent_results]
 
             dashboard_data.append(
                 {

@@ -35,7 +35,13 @@ interface StudentData {
   recent_results: Array<{
     subject: string;
     score: number;
-    exam_date: string;
+    /** ISO date the exam was sat, or null when the school didn't set one. */
+    exam_date: string | null;
+    exam_name?: string | null;
+    /** e.g. "First Term" */
+    term?: string | null;
+    /** e.g. "2025/2026" */
+    session?: string | null;
   }>;
   alert: string | null;
 }
@@ -45,6 +51,14 @@ interface DashboardResponse {
   /** False until the admin releases the Academics tab to students & parents. */
   academics_visible?: boolean;
 }
+
+/** "2026-12-10" -> "Dec 10, 2026"; null for a missing or unreadable date, never "Invalid Date". */
+const formatExamDate = (value: string | null | undefined) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+};
 
 /** "Ada Okafor" -> "Ada", for buttons like "Hand in for Ada". */
 const firstName = (fullName: string) => fullName.trim().split(/\s+/)[0] || fullName;
@@ -371,22 +385,30 @@ const ParentDashboard = () => {
               <CardContent>
                 {currentStudent.recent_results.length > 0 ? (
                   <div className="space-y-3">
-                    {currentStudent.recent_results.map((result, index) => (
+                    {currentStudent.recent_results.map((result, index) => {
+                      const examDate = formatExamDate(result.exam_date);
+                      return (
                       <div
                         key={index}
-                        className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
+                        className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg"
                       >
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <p className="font-medium text-gray-900 dark:text-white">
                             {result.subject}
                           </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {result.exam_date ? new Date(result.exam_date).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            }) : 'N/A'}
-                          </p>
+                          {(result.term || result.session) && (
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {result.term && <Badge variant="secondary">{result.term}</Badge>}
+                              {result.session && (
+                                <Badge variant="outline">{result.session} session</Badge>
+                              )}
+                            </div>
+                          )}
+                          {examDate && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {examDate}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className={`text-2xl font-bold ${getScoreColor(result.score)}`}>
@@ -394,7 +416,8 @@ const ParentDashboard = () => {
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-500 dark:text-gray-400">
