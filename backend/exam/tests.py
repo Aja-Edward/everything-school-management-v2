@@ -912,6 +912,37 @@ class ConvertingAWholeTypedPaperTest(SimpleTestCase):
         self.assertTrue(any('"SECTION C: PRACTICAL"' in w or "Section C: PRACTICAL" in w
                             for w in parsed["metadata"]["warnings"]))
 
+    def test_god_treasure_theory_headed_question_1_with_lettered_parts_comes_through(self):
+        """
+        How God's Treasure teachers type theory on the Plain Page: each
+        question headed "QUESTION 1:" or "Question 1", its parts lettered
+        under it. None of it was read, so their papers kept no theory.
+        """
+        for heading in ("QUESTION {}:", "Question {}", "QUESTION {}"):
+            with self.subTest(heading=heading):
+                paper = ["SECTION A: OBJECTIVE QUESTIONS", "Instruction: Answer all questions in this section.",
+                         *objective_lines(40),
+                         "SECTION B: THEORY QUESTIONS", "Instruction: Answer any FOUR questions."]
+                for number in range(1, 6):
+                    paper += [heading.format(number), "a. Define a constitution. (2 marks)",
+                              "b. State three features of the constitution. (3 marks)"]
+                parsed = self.parse(paper)
+                theory = parsed["sections"][1]
+
+                self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]],
+                                 [("objective", 40), ("theory", 5)])
+                self.assertEqual(theory["instructions"], "Instruction: Answer any FOUR questions.")
+                self.assertIn("Define a constitution", theory["questions"][0]["question"]
+                              + "".join(q["question"] for q in theory["questions"][0].get("subQuestions", [])))
+
+    def test_an_unfinished_question_at_the_end_is_reported_not_made_theory(self):
+        parsed = self.parse(["SECTION A: OBJECTIVE", *objective_lines(30),
+                             "31. The law of diminishing returns enables ...",
+                             "Note: the rest of question 31 could not be read."])
+
+        self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]], [("objective", 30)])
+        self.assertTrue(any("31. The law of diminishing returns" in w for w in parsed["metadata"]["warnings"]))
+
     def test_theory_sub_parts_lettered_a_b_are_not_read_as_options(self):
         self.assertEqual(self.sections([
             "SECTION A", *objective_lines(3), "SECTION B",

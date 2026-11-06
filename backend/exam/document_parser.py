@@ -1380,18 +1380,12 @@ class ExamDocumentParser:
             )
 
         if rest:
-            if any(QUESTION_NUMBER_RE.match(line) for line in rest):
-                self.warnings.append(
-                    "The questions numbered from 1 again after the objective questions were read "
-                    "as a section of their own, as there is no heading such as SECTION B or THEORY "
-                    "over them - check that they came through as you meant."
-                )
-                self._read_section('', '', rest, sections, untitled=True)
-            elif any(line.rstrip().endswith('?') for line in rest):
-                self.warnings.append(
-                    f"Skipped after the last question in {label}: \"{' '.join(rest)[:80]}\" - "
-                    "it has no options A., B., C., D. under it."
-                )
+            self.warnings.append(
+                "The questions numbered from 1 again after the objective questions were read "
+                "as a section of their own, as there is no heading such as SECTION B or THEORY "
+                "over them - check that they came through as you meant."
+            )
+            self._read_section('', '', rest, sections, untitled=True)
 
     @staticmethod
     def _numbered_chain(stem_lines: List[str], last_number: Optional[int]) -> List[int]:
@@ -1430,7 +1424,7 @@ class ExamDocumentParser:
         because it had no options, and each set of options with no question,
         so the teacher can be told. rest_out, when given, receives the lines
         from where the numbering starts again at 1 - a theory section with
-        no heading of its own - and the lines after the last question.
+        no heading of its own.
         """
         lines = mend_objective_lines(lines)
         questions: List[Dict[str, Any]] = []
@@ -1479,9 +1473,9 @@ class ExamDocumentParser:
 
             if len(option_lines) < 2:
                 if j >= n:
-                    if rest_out is not None:
-                        rest_out.extend(lines[i:j])
-                    elif any(NUMBERED_LINE_RE.match(s) or s.rstrip().endswith('?') for s in lines[i:j]):
+                    # After the last question: a question typed without
+                    # options is reported, "END OF PAPER" is not.
+                    if any(NUMBERED_LINE_RE.match(s) or s.rstrip().endswith('?') for s in lines[i:j]):
                         skip(lines[i:j])
                 else:
                     skip(lines[i:k])
