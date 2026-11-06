@@ -15,7 +15,7 @@ import {
 } from '@/utils/examDataNormalizer';
 import { ExamDocumentUploader } from '@/components/shared/ExamDocumentUploader';
 import SectionPassageField, { hasPassages } from '@/components/shared/SectionPassageField';
-import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent, SectionInstructions } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { announceConversionWarnings, convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent, SectionInstructions } from '@/components/shared/ExamPlainPage';
 
 /** The question sections an exam is saved with, and any instructions a conversion brought. */
 type SectionsToSave = SectionInstructions & {
@@ -812,6 +812,7 @@ const sectionsForSave = async (): Promise<SectionsToSave> => {
   try {
     const converted = await convertPlainPage(formData.plain_page || '');
     handlePlainPageConvert(converted, false);
+    announceConversionWarnings(converted);
     return {
       objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,
       practical_questions: converted.practical_questions, custom_sections: converted.custom_sections,

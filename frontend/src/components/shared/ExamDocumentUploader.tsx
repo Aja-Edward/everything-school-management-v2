@@ -21,6 +21,7 @@ import {
   parseExamPastedText,
   convertParsedDataToExamFormat,
 } from '../../services/DocumentParserService';
+import { announceConversionWarnings } from './ExamPlainPage';
 
 interface ExamDocumentUploaderProps {
   onImport: (examData: any) => void;
@@ -115,7 +116,9 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
       // loses them silently — the parse succeeds, the uploader gets closed,
       // and saving then complains there are no questions. Everything stays
       // editable in the form, so previewing here buys nothing.
-      onImport(convertParsedDataToExamFormat(parsed));
+      const examData = convertParsedDataToExamFormat(parsed);
+      onImport(examData);
+      announceConversionWarnings(examData);
     } catch (err) {
       console.error('❌ Document parsing error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to parse document';
@@ -171,7 +174,9 @@ export const ExamDocumentUploader: React.FC<ExamDocumentUploaderProps> = ({
 
       // Same reasoning as parseDocument: hand the questions straight to the
       // form rather than a confirmation step that just loses them.
-      onImport(convertParsedDataToExamFormat(parsed));
+      const examData = convertParsedDataToExamFormat(parsed);
+      onImport(examData);
+      announceConversionWarnings(examData);
       setPastedText('');
     } catch (err) {
       console.error('❌ Pasted-text parsing error:', err);

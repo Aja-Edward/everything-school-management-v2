@@ -775,6 +775,151 @@ class ReadingATypedPaperTest(SimpleTestCase):
             """)), [("objective", 1)])
 
 
+def objective_lines(count, start=1):
+    """A run of objective questions, one line each for the question and its options."""
+    lines = []
+    for number in range(start, start + count):
+        lines += [f"{number}. What is question {number} about?",
+                  "A. Lagos", "B. Abuja", "C. Kano", "D. Ibadan"]
+    return lines
+
+
+THEORY_LINES = [
+    "1. Explain photosynthesis. (10 marks)",
+    "2. Define osmosis.",
+    "3. Describe the parts of a flower.",
+]
+
+
+class ConvertingAWholeTypedPaperTest(SimpleTestCase):
+    """
+    A God's Treasure teacher typed 40 objective questions and a theory
+    section on the Plain Page. Converting it brought in 39 objectives and
+    no theory, and nothing told her what was left out.
+    """
+
+    def parse(self, lines):
+        return ExamDocumentParser("\n".join(lines).encode("utf-8"), "pasted-exam.txt").parse()
+
+    def sections(self, lines):
+        return [(s["type"], len(s["questions"])) for s in self.parse(lines)["sections"]]
+
+    def test_question_40_typed_onto_the_line_above_still_comes_through(self):
+        paper = ["SECTION A: OBJECTIVE", *objective_lines(38),
+                 "39. What is question 39 about?", "A. Lagos", "B. Abuja", "C. Kano",
+                 "D. Ibadan 40. What is question 40 about?",
+                 "A. Lagos", "B. Abuja", "C. Kano", "D. Ibadan"]
+        parsed = self.parse(paper)
+        questions = parsed["sections"][0]["questions"]
+
+        self.assertEqual(self.sections(paper), [("objective", 40)])
+        self.assertEqual(questions[38]["options"]["optionD"], "Ibadan")
+        self.assertEqual(questions[39]["question"], "<p>What is question 40 about?</p>")
+
+    def test_a_question_typed_with_its_options_on_one_line_still_comes_through(self):
+        paper = ["SECTION A: OBJECTIVE", *objective_lines(39),
+                 "40. What is question 40 about? A. Lagos B. Abuja C. Kano D. Ibadan"]
+        questions = self.parse(paper)["sections"][0]["questions"]
+
+        self.assertEqual(len(questions), 40)
+        self.assertEqual(questions[39]["question"], "<p>What is question 40 about?</p>")
+        self.assertEqual(questions[39]["options"]["optionD"], "Ibadan")
+
+    def test_an_option_typed_without_its_letter_stays_in_its_question(self):
+        paper = ["SECTION A: OBJECTIVE", *objective_lines(1),
+                 "2. Which is a state?", "A. Lagos", "Abuja", "C. Kano", "D. Ibadan"]
+        questions = self.parse(paper)["sections"][0]["questions"]
+
+        self.assertEqual(len(questions), 2)
+        self.assertEqual(questions[1]["options"]["optionB"], "Abuja")
+
+    def test_a_question_without_options_is_reported_not_joined_to_the_next(self):
+        paper = ["SECTION A: OBJECTIVE", *objective_lines(4),
+                 "5. Name the capital of Nigeria?", *objective_lines(2, start=6)]
+        parsed = self.parse(paper)
+        questions = parsed["sections"][0]["questions"]
+
+        self.assertEqual(len(questions), 6)
+        self.assertEqual(questions[4]["question"], "<p>What is question 6 about?</p>")
+        self.assertTrue(any("5. Name the capital of Nigeria?" in w for w in parsed["metadata"]["warnings"]))
+
+    def test_statements_numbered_inside_a_question_stay_in_it(self):
+        paper = ["SECTION A: OBJECTIVE", *objective_lines(6),
+                 "7. Consider these statements:", "1. Lagos is big", "2. Abuja is the capital",
+                 "A. 1 only", "B. 2 only", "C. both", "D. neither", *objective_lines(1, start=8)]
+        questions = self.parse(paper)["sections"][0]["questions"]
+
+        self.assertEqual(len(questions), 8)
+        self.assertIn("2. Abuja is the capital", questions[6]["question"])
+
+    def test_theory_comes_through_under_every_usual_heading(self):
+        headings = [
+            ["SECTION B"],
+            ["THEORY"],
+            ["Theory Questions (40 marks)"],
+            ["SECTION B", "THEORY"],
+            ["SECTION B (THEORY)"],
+            ["Section 2: Theory"],
+            ["PART II"],
+            ["SECTION B", "Answer any two questions"],
+            ["SUBJECTIVE"],
+        ]
+        for heading in headings:
+            with self.subTest(heading=heading):
+                self.assertEqual(
+                    self.sections(["SECTION A", *objective_lines(40), *heading, *THEORY_LINES]),
+                    [("objective", 40), ("theory", 3)],
+                )
+
+    def test_objectives_with_no_heading_over_them_are_kept_above_a_theory_heading(self):
+        paper = ["GOD'S TREASURE SCHOOLS", "FIRST TERM EXAMINATION", *objective_lines(40),
+                 "THEORY", *THEORY_LINES]
+
+        self.assertEqual(self.sections(paper), [("objective", 40), ("theory", 3)])
+
+    def test_theory_with_no_heading_starts_where_the_numbering_starts_again(self):
+        parsed = self.parse([*objective_lines(40), "Answer any two questions", *THEORY_LINES])
+
+        self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]],
+                         [("objective", 40), ("theory", 3)])
+        self.assertTrue(any("numbered from 1 again" in w for w in parsed["metadata"]["warnings"]))
+
+    def test_theory_numbered_other_ways_comes_through(self):
+        for theory in (
+            ["Q1. Explain photosynthesis.", "Q2. Define osmosis."],
+            ["Question 1", "Explain photosynthesis.", "Question 2", "Define osmosis."],
+            ["1(a) Explain photosynthesis.", "(b) Give an example.", "2(a) Define osmosis."],
+            ["1.Explain photosynthesis.", "2.Define osmosis."],
+        ):
+            with self.subTest(theory=theory):
+                self.assertEqual(
+                    self.sections(["SECTION A: OBJECTIVE", *objective_lines(2), "SECTION B: THEORY", *theory]),
+                    [("objective", 2), ("theory", 2)],
+                )
+
+    def test_unnumbered_theory_is_read_a_line_a_question_and_the_teacher_told(self):
+        parsed = self.parse(["SECTION A: OBJECTIVE", *objective_lines(2), "SECTION B: THEORY",
+                             "Explain photosynthesis.", "Define osmosis."])
+
+        self.assertEqual([(s["type"], len(s["questions"])) for s in parsed["sections"]],
+                         [("objective", 2), ("theory", 2)])
+        self.assertTrue(any("aren't numbered" in w for w in parsed["metadata"]["warnings"]))
+
+    def test_a_section_nothing_could_be_read_from_is_named_to_the_teacher(self):
+        parsed = self.parse(["SECTION A: OBJECTIVE", *objective_lines(2), "SECTION C: PRACTICAL"])
+
+        self.assertEqual([s["type"] for s in parsed["sections"]], ["objective"])
+        self.assertTrue(any('"SECTION C: PRACTICAL"' in w or "Section C: PRACTICAL" in w
+                            for w in parsed["metadata"]["warnings"]))
+
+    def test_theory_sub_parts_lettered_a_b_are_not_read_as_options(self):
+        self.assertEqual(self.sections([
+            "SECTION A", *objective_lines(3), "SECTION B",
+            "1. Define osmosis.", "a. Give an example.", "b. State two uses.",
+            "2. Describe digestion.",
+        ]), [("objective", 3), ("theory", 2)])
+
+
 class ExamsAreForStaffTest(ExamApiTestCase):
     def test_students_and_parents_are_refused_every_exam_endpoint(self):
         reads = [

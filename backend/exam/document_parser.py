@@ -73,9 +73,44 @@ def is_template_boilerplate(text: str) -> bool:
 SECTION_HEADER_RE = re.compile(
     # "Section A", "Section A: Objective", "SECTION B - Theory", and with
     # just a space, "SECTION B LITERARY APPRECIATION - Choose the best option".
-    r'^section\s+([a-zA-Z])(?:(?:\s*[:\-–—]\s*|\s+)(.*))?$',
+    # Papers also number their sections - "SECTION 2", "Section II", "PART B",
+    # "Part Two" - and those were read as questions, so a theory section
+    # headed that way was folded into the last objective question.
+    r'^(?:section|part)\s+([a-z]|\d{1,2}|[ivx]{1,4}|one|two|three|four|five)\b'
+    r'(?:(?:\s*[:\-–—.]\s*|\s+)(.*))?$',
     re.IGNORECASE
 )
+
+# A heading that names the kind of section with no "Section B" in front:
+# "THEORY", "Theory Questions (40 marks)", "OBJECTIVE TEST", "ESSAY".
+KIND_HEADING_RE = re.compile(
+    r'^(?:the\s+)?(objectives?|multiple[\s-]*choice|theory|essay|subjective|practicals?)'
+    r'(?:\s+(?:questions?|section|test|part|paper))?\s*[:.\-–—]?\s*(?:\(.*\))?\s*[:.]?$',
+    re.IGNORECASE
+)
+
+# Longer than this, a line starting "Section 3 of..." is a question, not a heading.
+HEADING_MAX_CHARS = 100
+
+
+def section_heading(line: str) -> Optional[Tuple[str, str]]:
+    """
+    (name, subtitle) when the line heads a section, else None. The subtitle
+    is what says which kind of section it is: "Theory" in "Section B: Theory".
+    """
+    text = line.strip()
+    if len(text) > HEADING_MAX_CHARS or text.endswith('?'):
+        return None
+    m = SECTION_HEADER_RE.match(text)
+    if m:
+        label = m.group(1)
+        label = label.upper() if len(label) <= 4 else label.capitalize()
+        subtitle = (m.group(2) or '').strip()
+        word = 'Part' if text.lower().startswith('part') else 'Section'
+        return (f'{word} {label}: {subtitle}' if subtitle else f'{word} {label}'), subtitle
+    if KIND_HEADING_RE.match(text):
+        return text, text
+    return None
 
 # A multiple-choice option line: "A. text", "B) text", "C: text", "(D) text"
 # - upper or lower case letter, A through E.
@@ -141,8 +176,88 @@ def split_inline_options(line: str) -> List[str]:
     starts.append(len(line))
     return [line[a:b].strip() for a, b in zip(starts, starts[1:]) if line[a:b].strip()]
 
+
+# Where a question's options start when they are typed on the question's own
+# line: "40. What is 2 + 2? A. 3 B. 4 C. 5 D. 6", or "... (a) 3 (b) 4".
+INLINE_OPTION_START_RE = re.compile(r'(?<=[\s?:.])(?:\([Aa]\)|[Aa][\.\)])(?=\s*\S)')
+
+# The next question typed onto the end of an option: "D. Kano 40. What is...".
+RUN_IN_QUESTION_RE = re.compile(r'^(.*?\S)\s+(\d{1,3})[\.\)]\s+(\S.*)$')
+
+
+def options_restart(prev: str, letter: str) -> bool:
+    """Whether an option lettered A after B, C or D starts a new question's options."""
+    return letter.lower() == 'a' and prev.lower() != 'a'
+
+
+def _option_letter(line: str) -> Optional[str]:
+    m = OPTION_LINE_RE.match(line)
+    return m.group(1) if m else None
+
+
+def mend_objective_lines(lines: List[str]) -> List[str]:
+    """
+    Lines of an objective section put back into one line per question and
+    one per option, where the teacher typed them otherwise:
+
+    - a question with its options on its own line, "What is 2 + 2? A. 3 B. 4",
+      or with only "A." there and the rest below;
+    - the next question run onto the end of an option, "D. Kano 40. What is
+      the capital?", with its options under it;
+    - an option typed without its letter, between B. and D.
+
+    Each of these merged two questions into one, or took one apart, so a
+    question went missing from the converted exam.
+    """
+    split: List[str] = []
+    for n, line in enumerate(lines):
+        if OPTION_LINE_RE.match(line):
+            split.append(line)
+            continue
+        m = INLINE_OPTION_START_RE.search(line)
+        stem = line[:m.start()].strip() if m else ''
+        if m and stem:
+            parts = split_inline_options(line[m.start():])
+            nxt = lines[n + 1] if n + 1 < len(lines) else ''
+            if len(parts) >= 2 or (_option_letter(nxt) or '').lower() == 'b':
+                split.extend([stem, *parts])
+                continue
+        split.append(line)
+
+    out: List[str] = []
+    for n, line in enumerate(split):
+        letter = _option_letter(line)
+        prev = _option_letter(out[-1]) if out else None
+        if letter and prev and options_restart(prev, letter):
+            # The options start again at A: a new question, whose stem may
+            # have been typed onto the end of the option before.
+            run_in = RUN_IN_QUESTION_RE.match(out[-1])
+            if run_in and OPTION_LINE_RE.match(run_in.group(1)):
+                out[-1] = run_in.group(1)
+                out.append(f'{run_in.group(2)}. {run_in.group(3)}')
+        elif not letter and prev and not NUMBERED_LINE_RE.match(line):
+            nxt = _option_letter(split[n + 1]) if n + 1 < len(split) else None
+            position = OPTION_LETTERS.index(prev.lower())
+            if nxt and OPTION_LETTERS.index(nxt.lower()) == position + 2:
+                missing = OPTION_LETTERS[position + 1]
+                line = f'{missing.upper() if prev.isupper() else missing}. {line}'
+        out.append(line)
+    return out
+
 # A leading question number: "1. text", "12) text".
 NUMBERED_LINE_RE = re.compile(r'^(\d+)[\.\)]\s*(.+)$')
+
+# Where a numbered question starts in a theory, practical or other section:
+# "1. ", "1) ", "1.Explain", "1(a)", "1 (a)", "Q1.", "Question 1" on a line
+# of its own. Only "1. " and "1) " were read, so theory typed any other way
+# didn't come through at all. "1.5 kg" is not a number 1.
+QUESTION_NUMBER_RE = re.compile(
+    r'^[ \t]*(?:'
+    r'(?:question|q)[ \t]*\.?[ \t]*(?P<named>\d{1,3})[\.\):]?[ \t]*'
+    r'|(?P<bare>\d{1,3})(?:[\.\)][ \t]+|[\.\)][ \t]*$|[\.\)](?=[A-Za-z(])|[ \t]*(?=\())'
+    r')',
+    re.IGNORECASE | re.MULTILINE
+)
 
 # The heading that introduces a trailing answer key, e.g.
 # "Marking Guide (Teacher's Use)" or "Marking Scheme".
@@ -469,6 +584,8 @@ class ExamDocumentParser:
         return sections
 
     def _detect_section_type_from_subtitle(self, subtitle: str) -> str:
+        if 'subjective' in subtitle:  # holds "objective"
+            return 'theory'
         if any(kw in subtitle for kw in ['objective', 'multiple choice', 'mcq', 'choose']):
             return 'objective'
         if any(kw in subtitle for kw in ['theory', 'essay', 'short answer', 'long answer']):
@@ -1081,97 +1198,225 @@ class ExamDocumentParser:
         title_norm = title.strip()
         if (
             title_norm and paras and paras[0] == title_norm
-            and not SECTION_HEADER_RE.match(paras[0])
+            and not section_heading(paras[0])
             and not NUMBERED_LINE_RE.match(paras[0])
             and not (len(paras) > 1 and OPTION_LINE_RE.match(paras[1]))
         ):
             paras = paras[1:]
 
-        # Find genuine section headers, skipping table-of-contents style
-        # mentions - a "Section A" paragraph immediately followed by another
-        # "Section X" paragraph is naming a section, not starting one.
-        header_idxs: List[Tuple[int, str, str]] = []
-        for idx, para in enumerate(paras):
-            m = SECTION_HEADER_RE.match(para)
-            if not m:
-                continue
-            nxt = paras[idx + 1] if idx + 1 < len(paras) else ''
-            if SECTION_HEADER_RE.match(nxt):
-                continue
-            header_idxs.append((idx, m.group(1).upper(), (m.group(2) or '').strip()))
+        headings = self._section_headings(paras)
+        sections: List[Dict[str, Any]] = []
 
-        if not header_idxs:
-            # No "Section A/B" headings anywhere - treat the paste as one
-            # section, guessing objective vs theory from how many option
-            # lines (A./B./C./D.) show up.
-            option_count = sum(1 for p in paras if OPTION_LINE_RE.match(p))
-            section_type = 'objective' if option_count >= 4 else 'theory'
-            questions = (
-                self._extract_objective_from_paragraphs(paras) if section_type == 'objective'
-                else self._extract_questions('\n'.join(paras), section_type)
-            )
-            if not questions:
-                return []
-            self.warnings.append(
-                "No 'Section A/B' headings found. All questions grouped into one section."
-            )
-            return [{
-                'type': section_type,
-                'name': 'Main Section',
-                'instructions': '',
-                'questions': questions
-            }]
-
-        sections = []
-        for k, (idx, letter, subtitle) in enumerate(header_idxs):
-            start = idx + 1
-            end = header_idxs[k + 1][0] if k + 1 < len(header_idxs) else len(paras)
-            body = paras[start:end]
-
-            section_type = self._detect_section_type_from_subtitle(subtitle.lower())
-
-            instructions = ''
-            passage = ''
-            if body:
-                lead = body[0]
-                lead_lower = lead.lower()
-                looks_like_instruction = (
-                    not OPTION_LINE_RE.match(lead)
-                    and not NUMBERED_LINE_RE.match(lead)
-                    and any(lead_lower.startswith(kw) for kw in
-                            ('choose', 'select', 'answer any', 'instruction', 'read '))
+        if not headings:
+            # No headings anywhere - one section, objective or theory by
+            # what its lines look like.
+            self._read_section('Main Section', '', paras, sections, untitled=True)
+            if len(sections) == 1:
+                self.warnings.append(
+                    "No 'Section A/B' headings found. All questions grouped into one section."
                 )
-                if looks_like_instruction:
-                    instructions = lead
-                    body = body[1:]
+            return sections
 
-            if section_type == 'objective':
-                lead: List[str] = []
-                questions = self._extract_objective_from_paragraphs(body, lead_out=lead)
-                # A comprehension passage, or an instruction, above the first
-                # question belongs to the section, not to question 1.
-                instruction_lines, passage_lines = split_passage([instructions, *lead])
-                instructions = '\n'.join(instruction_lines)
-                passage = '\n'.join(passage_lines)
-            else:
-                questions = self._extract_questions('\n'.join(body), section_type)
+        # Objective questions typed above the first heading, on a paper that
+        # heads only its theory: they were dropped with the school's name.
+        preamble = paras[:headings[0][0]]
+        if any(OPTION_LINE_RE.match(p) for p in mend_objective_lines(preamble)):
+            self._read_section('Main Section', '', preamble, sections, untitled=True)
 
-            if questions:
-                sections.append({
-                    'type': section_type,
-                    # The whole heading, "Section B: LITERARY APPRECIATION -
-                    # Choose the best option", which a later section's first
-                    # question is shown under once sections are joined.
-                    'name': f'Section {letter}: {subtitle}' if subtitle else f'Section {letter}',
-                    'instructions': instructions,
-                    'passage': passage,
-                    'questions': questions
-                })
+        for k, (idx, width, name, subtitle) in enumerate(headings):
+            end = headings[k + 1][0] if k + 1 < len(headings) else len(paras)
+            self._read_section(name, subtitle, paras[idx + width:end], sections)
 
         return sections
 
+    @staticmethod
+    def _section_headings(paras: List[str]) -> List[Tuple[int, int, str, str]]:
+        """
+        (index, lines it takes, name, subtitle) of each section heading.
+
+        A heading straight after another is a table of contents naming the
+        sections, not one starting - except "SECTION B" over "THEORY", which
+        is one heading on two lines.
+        """
+        found: List[Tuple[int, int, str, str]] = []
+        idx = 0
+        while idx < len(paras):
+            heading = section_heading(paras[idx])
+            if not heading:
+                idx += 1
+                continue
+            name, subtitle = heading
+            width = 1
+            nxt = paras[idx + 1] if idx + 1 < len(paras) else ''
+            if section_heading(nxt):
+                is_section = SECTION_HEADER_RE.match(paras[idx].strip())
+                if is_section and not subtitle and KIND_HEADING_RE.match(nxt.strip()):
+                    subtitle = nxt.strip()
+                    name = f'{name}: {subtitle}'
+                    width = 2
+                else:
+                    idx += 1
+                    continue
+            found.append((idx, width, name, subtitle))
+            idx += width
+        return found
+
+    @staticmethod
+    def _option_runs(lines: List[str]) -> List[int]:
+        """How many options each question has, for the questions in these lines."""
+        runs: List[int] = []
+        prev: Optional[str] = None
+        for line in lines:
+            letter = _option_letter(line)
+            if letter and prev is not None and not options_restart(prev, letter):
+                runs[-1] += 1
+            elif letter:
+                runs.append(1)
+            prev = letter
+        return runs
+
+    def _infer_section_type(self, subtitle: str, body: List[str]) -> str:
+        """
+        A section's kind from its heading, or from its lines when the
+        heading doesn't say: "Section A" over options is objective, and
+        "Section B" over numbered questions is theory. Both were 'custom',
+        which kept no options and no theory section.
+        """
+        section_type = self._detect_section_type_from_subtitle(subtitle.lower())
+        if section_type != 'custom':
+            return section_type
+        intro = ' '.join(body[:2]).lower()
+        if any(kw in intro for kw in ('answer any', 'attempt', 'essay', 'theory')):
+            return 'theory'
+        runs = [r for r in self._option_runs(mend_objective_lines(body)) if r >= 2]
+        numbered = sum(1 for s in body if NUMBERED_LINE_RE.match(s))
+        if runs and sum(1 for r in runs if r >= 3) * 2 >= len(runs) and len(runs) * 2 >= numbered:
+            return 'objective'
+        # A heading naming something else, "Section C: Comprehension", keeps its own section.
+        return 'custom' if subtitle else 'theory'
+
+    def _read_section(
+        self, name: str, subtitle: str, body: List[str], sections: List[Dict[str, Any]],
+        untitled: bool = False,
+    ) -> None:
+        """
+        Read one section's lines and add it to sections, telling the teacher
+        about any question left out, or the section itself when nothing in
+        it could be read.
+        """
+        section_type = self._infer_section_type(subtitle, body)
+
+        instructions = ''
+        passage = ''
+        if body:
+            lead = body[0]
+            lead_lower = lead.lower()
+            looks_like_instruction = (
+                not OPTION_LINE_RE.match(lead)
+                and not NUMBERED_LINE_RE.match(lead)
+                and any(lead_lower.startswith(kw) for kw in
+                        ('choose', 'select', 'answer', 'attempt', 'instruction', 'read '))
+            )
+            if looks_like_instruction:
+                instructions = lead
+                body = body[1:]
+
+        label = 'the paper' if untitled else name
+        rest: List[str] = []
+        if section_type == 'objective':
+            lead_lines: List[str] = []
+            skipped: List[str] = []
+            questions = self._extract_objective_from_paragraphs(
+                body, lead_out=lead_lines, skipped_out=skipped, rest_out=rest)
+            # A comprehension passage, or an instruction, above the first
+            # question belongs to the section, not to question 1.
+            instruction_lines, passage_lines = split_passage([instructions, *lead_lines])
+            if untitled:
+                # Above an untitled paper's first question is the school's
+                # name and the paper's title, not instructions.
+                instruction_lines = [l for l in instruction_lines if l == instructions]
+            instructions = '\n'.join(instruction_lines)
+            passage = '\n'.join(passage_lines)
+            for text in skipped:
+                self.warnings.append(
+                    f"Left out{'' if untitled else f' of {name}'}: \"{text[:80]}\" - an objective "
+                    "question needs at least two options typed as A., B., C., D. on their own "
+                    "lines under it."
+                )
+        else:
+            text = '\n'.join(body)
+            first = QUESTION_NUMBER_RE.search(text)
+            if first and text[:first.start()].strip():
+                # Lines above the first question, "Answer any three", are
+                # the section's instructions rather than nothing at all.
+                instructions = '\n'.join(filter(None, [instructions, text[:first.start()].strip()]))
+            questions = self._extract_questions(text, section_type)
+            if not questions and body and section_type == 'theory':
+                # Theory typed without numbers: each line is a question.
+                questions = [q for q in (self._extract_questions(f'1. {line}', section_type) for line in body)
+                             for q in q]
+                if questions:
+                    self.warnings.append(
+                        f"The questions in {label} aren't numbered 1., 2., 3., so each line was taken "
+                        "as one question - check them over."
+                    )
+
+        if questions:
+            sections.append({
+                'type': section_type,
+                # The whole heading, "Section B: LITERARY APPRECIATION -
+                # Choose the best option", which a later section's first
+                # question is shown under once sections are joined.
+                'name': name,
+                'instructions': instructions,
+                'passage': passage,
+                'questions': questions
+            })
+        elif not untitled:
+            self.warnings.append(
+                f"No questions could be read from \"{name}\", so it was left out. Number its "
+                "questions 1., 2., 3., and for objective questions put the options A., B., C., D. "
+                "on their own lines."
+            )
+
+        if rest:
+            if any(QUESTION_NUMBER_RE.match(line) for line in rest):
+                self.warnings.append(
+                    "The questions numbered from 1 again after the objective questions were read "
+                    "as a section of their own, as there is no heading such as SECTION B or THEORY "
+                    "over them - check that they came through as you meant."
+                )
+                self._read_section('', '', rest, sections, untitled=True)
+            elif any(line.rstrip().endswith('?') for line in rest):
+                self.warnings.append(
+                    f"Skipped after the last question in {label}: \"{' '.join(rest)[:80]}\" - "
+                    "it has no options A., B., C., D. under it."
+                )
+
+    @staticmethod
+    def _numbered_chain(stem_lines: List[str], last_number: Optional[int]) -> List[int]:
+        """
+        Where the questions numbered in a run of lines start: each numbered
+        line that counts on from the question before. A question whose
+        options were left off runs into the next question's lines, "5. ..."
+        then "6. ...", and was read as a lead-in to question 6. Statements
+        numbered inside a question, "1. Lagos is..." under question 7, don't
+        count on from 6, so they stay part of it.
+        """
+        chain: List[Tuple[int, int]] = []
+        for p, line in enumerate(stem_lines):
+            m = NUMBERED_LINE_RE.match(line)
+            if not m:
+                continue
+            number = int(m.group(1))
+            before = chain[-1][1] if chain else last_number
+            if before is None or before < number <= before + 3:
+                chain.append((p, number))
+        return [p for p, _ in chain]
+
     def _extract_objective_from_paragraphs(
-        self, lines: List[str], lead_out: Optional[List[str]] = None
+        self, lines: List[str], lead_out: Optional[List[str]] = None,
+        skipped_out: Optional[List[str]] = None, rest_out: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Extract MCQ questions from a list of lines, whether or not the
@@ -1180,14 +1425,31 @@ class ExamDocumentParser:
         objective question - the whole run becomes the question stem, so a
         stem that happens to wrap across more than one line still comes
         through as a single question instead of being split apart.
+
+        skipped_out receives a short description of each question left out
+        because it had no options, and each set of options with no question,
+        so the teacher can be told. rest_out, when given, receives the lines
+        from where the numbering starts again at 1 - a theory section with
+        no heading of its own - and the lines after the last question.
         """
+        lines = mend_objective_lines(lines)
         questions: List[Dict[str, Any]] = []
+        last_number: Optional[int] = None
         i = 0
         n = len(lines)
 
+        def skip(texts: List[str]) -> None:
+            if skipped_out is not None and texts:
+                skipped_out.append(' '.join(texts))
+
         while i < n:
             if OPTION_LINE_RE.match(lines[i]):
-                i += 1  # stray option with no question stem before it
+                # Options with no question above them.
+                k = i
+                while k < n and OPTION_LINE_RE.match(lines[k]):
+                    k += 1
+                skip(['Options with no question:'] + lines[i:k])
+                i = k
                 continue
 
             j = i
@@ -1195,14 +1457,35 @@ class ExamDocumentParser:
                 j += 1
             # lines[i:j] are candidate stem lines; lines[j] starts an option run (or is past the end)
 
+            # Numbering that starts again at 1 after a few questions is a new
+            # section, with no heading for it: theory typed under the
+            # objectives. Read as more objective questions, it was lost.
+            # Only a "1." that is the first numbered line after the last
+            # options: "1. Lagos is..." under "7. Consider these:" is a
+            # statement inside question 7.
+            if rest_out is not None and last_number and last_number >= 2:
+                first = next((p for p in range(i, j) if NUMBERED_LINE_RE.match(lines[p])), None)
+                if first is not None and int(NUMBERED_LINE_RE.match(lines[first]).group(1)) == 1:
+                    rest_out.extend(lines[i:])
+                    return questions
+
             option_lines: List[str] = []
             k = j
             while k < n and OPTION_LINE_RE.match(lines[k]):
+                if option_lines and options_restart(_option_letter(option_lines[-1]), _option_letter(lines[k])):
+                    break  # "A." again: the next question's options
                 option_lines.append(lines[k])
                 k += 1
 
             if len(option_lines) < 2:
-                i = j  # nothing usable followed this run - move past it and retry
+                if j >= n:
+                    if rest_out is not None:
+                        rest_out.extend(lines[i:j])
+                    elif any(NUMBERED_LINE_RE.match(s) or s.rstrip().endswith('?') for s in lines[i:j]):
+                        skip(lines[i:j])
+                else:
+                    skip(lines[i:k])
+                i = k
                 continue
 
             stem_lines = lines[i:j]
@@ -1210,17 +1493,21 @@ class ExamDocumentParser:
             # or an "INSTRUCTION: choose the word nearest in meaning" over
             # the questions that follow. Above the first question they go to
             # the section (lead_out); further down they stay with the
-            # question they introduce, on lines of their own.
+            # question they introduce, on lines of their own. Questions
+            # numbered among them had no options and are left out.
             lead: List[str] = []
-            numbered_at = next(
-                (p for p, s in enumerate(stem_lines) if p and NUMBERED_LINE_RE.match(s)), None)
-            if numbered_at is not None:
-                lead, stem_lines = stem_lines[:numbered_at], stem_lines[numbered_at:]
+            chain = self._numbered_chain(stem_lines, last_number) or [
+                p for p, s in enumerate(stem_lines) if p and NUMBERED_LINE_RE.match(s)][:1]
+            if chain and chain[-1] > 0:
+                for a, b in zip(chain, chain[1:]):
+                    skip(stem_lines[a:b])
+                lead, stem_lines = stem_lines[:chain[0]], stem_lines[chain[-1]:]
                 if not questions and lead_out is not None:
                     lead_out.extend(lead)
                     lead = []
             num_m = NUMBERED_LINE_RE.match(stem_lines[0])
             if num_m:
+                last_number = int(num_m.group(1))
                 stem_lines = [num_m.group(2).strip()] + stem_lines[1:]
             stem_text = ' '.join(s for s in stem_lines if s)
             if lead:
@@ -1394,19 +1681,10 @@ class ExamDocumentParser:
         """Extract questions from section text"""
         questions = []
 
-        # Question numbering patterns
-        question_pattern = r'^\s*(\d+)[\.\)]\s+'
-
-        # Split by question numbers
-        question_blocks = re.split(question_pattern, text, flags=re.MULTILINE)
-
-        # Process question blocks (odd indices are numbers, even indices are content)
-        for i in range(1, len(question_blocks), 2):
-            if i + 1 >= len(question_blocks):
-                break
-
-            question_number = question_blocks[i]
-            question_content = question_blocks[i + 1].strip()
+        starts = list(QUESTION_NUMBER_RE.finditer(text))
+        for n, start in enumerate(starts):
+            end = starts[n + 1].start() if n + 1 < len(starts) else len(text)
+            question_content = text[start.end():end].strip()
 
             if not question_content:
                 continue

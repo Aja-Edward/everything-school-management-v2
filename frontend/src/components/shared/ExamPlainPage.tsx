@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react';
 import { AlertCircle, Wand2 } from 'lucide-react';
+import { toast } from 'react-toastify';
 import { RichTextEditor } from './ExamEditor';
 import {
   parseExamPastedText,
@@ -120,6 +121,26 @@ export const convertPlainPage = async (html: string): Promise<any> => {
   }
 };
 
+/**
+ * Tell the teacher what a conversion left out or had to guess at: a question
+ * with no options, a section nothing could be read from. These used to stay
+ * in the parser's reply, so a question or a whole theory section vanished
+ * without a word.
+ */
+export const announceConversionWarnings = (converted: { warnings?: string[] }): void => {
+  const warnings = (converted.warnings ?? []).filter(Boolean);
+  if (warnings.length === 0) return;
+  toast.warn(
+    <div>
+      <p className="font-medium">Check these before saving:</p>
+      <ul className="list-disc pl-4 mt-1 space-y-1">
+        {warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+      </ul>
+    </div>,
+    { autoClose: false },
+  );
+};
+
 export type SectionInstructions = {
   objective_instructions?: string; theory_instructions?: string; practical_instructions?: string;
   objective_passage?: string; theory_passage?: string;
@@ -189,7 +210,9 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
 
     setConverting(true);
     try {
-      onConvert(await convertPlainPage(value));
+      const converted = await convertPlainPage(value);
+      onConvert(converted);
+      announceConversionWarnings(converted);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -210,7 +233,9 @@ export const ExamPlainPage: React.FC<ExamPlainPageProps> = ({
         <p>
           When you save, the page is turned into questions for you if the exam has none yet, so it can be
           viewed, marked and used for CBT. Press <strong>Convert to questions</strong> to do it now and check
-          them first. Put options on their own lines as A., B., C., D. and number theory questions 1., 2., 3.
+          them first. Put options on their own lines as A., B., C., D., start the theory part with a heading
+          such as SECTION B or THEORY, and number theory questions 1., 2., 3. Anything that can't be read is
+          listed for you after converting.
           Pictures, tables and formulas aren't carried over, so add those again in the section tabs.
         </p>
       </div>
