@@ -314,6 +314,52 @@ class ThePlainPageTest(ExamApiTestCase):
         self.assertEqual((self.exam.plain_page, self.exam.print_plain_page), ("", False))
 
 
+class SavingAPaperWithDrawingsTest(ExamApiTestCase):
+    """
+    Biology and Chemistry teachers draw their diagrams in the exam editor: a
+    tomato cut across, a dissected rat. A drawing is saved inside the
+    question's HTML as an SVG picture that also carries the strokes it was
+    drawn with, so the teacher can open it and keep editing. A freehand
+    diagram is far bigger than typed text. Nothing on the way may cut it short
+    or strip the picture: Django's 2.5 MB DATA_UPLOAD_MAX_MEMORY_SIZE only
+    guards request.body, which DRF doesn't read for JSON, and anything that
+    started reading it, or cleaning question HTML, would lose the drawings.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def drawing(self, kilobytes):
+        """A drawing's <img> as the editor writes it, about `kilobytes` long."""
+        points = " ".join(f"{i % 700}.5 {i % 400}" for i in range(kilobytes * 100))
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200">'
+            '<desc data-drawing="W10=" data-margin="4" data-background="transparent">Drawing</desc>'
+            f'<path d="M{points}" fill="none" stroke="#0f172a" stroke-width="3"/></svg>'
+        )
+        src = "data:image/svg+xml;charset=utf-8," + svg.replace("<", "%3C").replace(">", "%3E")
+        return f'<p>Label the parts of the tomato.<img src="{src}" alt="Drawing" width="300"></p>'
+
+    def test_a_paper_with_several_large_diagrams_saves_whole(self):
+        questions = [
+            {"id": n, "question": self.drawing(400), "marks": 5} for n in range(1, 11)
+        ]
+        body = json.dumps({"theory_questions": questions})
+        self.assertGreater(len(body), 3 * 1024 * 1024)
+
+        response = self.client.patch(
+            f"{EXAMS}{self.exam.id}/", body, content_type="application/json",
+            HTTP_X_TENANT_SLUG=self.school.slug)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.exam.refresh_from_db()
+        self.assertEqual(
+            [q["question"] for q in self.exam.theory_questions],
+            [q["question"] for q in questions],
+        )
+
+
 class TheExamListFillsTheEditFormTest(ExamApiTestCase):
     """
     The admin's Exams page opens an exam for editing from the list. With only

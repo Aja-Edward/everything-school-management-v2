@@ -25,7 +25,7 @@ import { NodeSelection } from '@tiptap/pm/state';
 import { uploadImageToCloudinary } from './ImageUploader';
 import ImageEditModal from './ImageEditModal';
 import ShapePanel from './ShapePanel';
-import ShapeCanvas, { type DrawingItem, readDrawing, readDrawingMargin, svgWidth } from './ShapeCanvas';
+import ShapeCanvas, { type DrawingItem, readDrawing, readDrawingBackground, readDrawingMargin, svgWidth } from './ShapeCanvas';
 import MathDialog from './MathDialog';
 import MathNode, { MATH_NODE, type MathEditRequest } from './MathNode';
 import type { RichTextEditorProps } from './types';
@@ -419,7 +419,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
       {/* Drawing board: several shapes arranged and labelled, inserted as one picture. */}
       <button type="button" onClick={onDraw}
         className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition"
-        title="Draw a diagram — shapes, arrows and labels on one sheet">
+        title="Draw a diagram — freehand pen, shapes, arrows and labels on one sheet">
         ✏️ Draw
       </button>
 
@@ -463,7 +463,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   // ── Drawing board state ─────────────────────────────────────────────────────
   // `editing` is the image being changed, so its drawing replaces it rather
   // than being added a second time.
-  const [drawing, setDrawing] = useState<{ items: DrawingItem[] | null; margin?: number; editing: HTMLImageElement | null } | null>(null);
+  const [drawing, setDrawing] = useState<{ items: DrawingItem[] | null; margin?: number; background?: string; editing: HTMLImageElement | null } | null>(null);
 
   // ── Formula dialog state ────────────────────────────────────────────────────
   // `pos` is set when changing a formula already in the document.
@@ -839,6 +839,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
               ? () => setDrawing({
                 items: selectedDrawing,
                 margin: readDrawingMargin(selectedImg.getAttribute('src')),
+                background: readDrawingBackground(selectedImg.getAttribute('src')),
                 editing: selectedImg,
               })
               : undefined}
@@ -896,6 +897,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <ShapeCanvas
           initialItems={drawing.items}
           initialMargin={drawing.margin}
+          initialBackground={drawing.background}
           onInsert={handleDrawingSave}
           onClose={() => setDrawing(null)}
         />
