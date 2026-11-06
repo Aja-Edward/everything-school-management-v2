@@ -8,6 +8,8 @@ move together, or a transferred student shows up in one class for their
 teacher and another on their own page.
 """
 
+from collections import defaultdict
+
 
 def student_fields_for_classroom(student, classroom):
     """The Student field values that put `student` in `classroom`'s section."""
@@ -46,23 +48,32 @@ def find_left_behind_transfers(students):
     from classroom.models import StudentEnrollment
 
     repairable, unclear = [], []
-    students = students.filter(is_active=True).select_related("section")
+    students = list(students.filter(is_active=True).select_related("section"))
+    ids = [student.id for student in students]
+
+    # Two queries for the whole school rather than two per student: over the
+    # pooled production connection the per-student queries took minutes.
+    active_by_student = defaultdict(list)
+    for enrollment in (
+        StudentEnrollment.objects.filter(student_id__in=ids, is_active=True)
+        .select_related("classroom__section__class_grade", "classroom__stream")
+        .order_by("id")
+    ):
+        active_by_student[enrollment.student_id].append(enrollment)
+    sections_left = set(
+        StudentEnrollment.objects.filter(student_id__in=ids, is_active=False)
+        .values_list("student_id", "classroom__section_id")
+    )
+
     for student in students:
-        active = list(
-            StudentEnrollment.objects.filter(student=student, is_active=True)
-            .select_related("classroom__section__class_grade", "classroom__stream")
-        )
+        active = active_by_student.get(student.id, [])
         sections = {e.classroom.section_id for e in active}
         if not active or sections == {student.section_id}:
             continue
         if len(active) != 1 or active[0].classroom.section_id is None:
             unclear.append((student, active))
             continue
-        left_own_section = StudentEnrollment.objects.filter(
-            student=student,
-            is_active=False,
-            classroom__section_id=student.section_id,
-        ).exists() if student.section_id else False
+        left_own_section = bool(student.section_id) and (student.id, student.section_id) in sections_left
         if left_own_section:
             repairable.append((student, active[0]))
         else:
