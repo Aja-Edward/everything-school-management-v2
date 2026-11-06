@@ -179,7 +179,7 @@ const DashboardContent = () => {
               Welcome back, {studentInfo.name || 'Student'}!
             </h1>
             <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base">
-              {studentInfo.classroom || studentInfo.class || 'N/A'} •{studentInfo.education_level || 'N/A'}
+              {studentInfo.classroom || studentInfo.class || 'N/A'} • {studentInfo.education_level || 'N/A'}
             </p>
           </div>
           <div className="flex gap-3">
