@@ -282,6 +282,18 @@ def _seed_assessment_components(tenant):
         return
 
     for level in levels:
+        # The defaults are a starting set only. Once a level has any
+        # component -- active or not -- it belongs to the school: topping it
+        # up put back every default the school had deleted or renamed, on
+        # every deploy (the Render build runs seed_tenant_defaults).
+        if AssessmentComponent.objects.filter(
+            tenant=tenant, education_level=level
+        ).exists():
+            logger.debug(
+                f"[{tenant.slug}] {level.level_type} already has assessment "
+                "components — leaving them alone."
+            )
+            continue
         templates = COMPONENT_DEFAULTS.get(level.level_type, [])
         existing_codes = set(
             AssessmentComponent.objects.filter(

@@ -14,7 +14,8 @@ from django.db import connection
 class Command(BaseCommand):
     help = (
         "Seed all defaults (GradeLevel → EducationLevel → TermTypes → "
-        "ExamTypes → AssessmentComponents) for all active tenants. "
+        "ExamTypes) for all active tenants. Assessment components are "
+        "seeded only with --step components. "
         "Safe to run repeatedly — uses get_or_create throughout."
     )
 
@@ -121,7 +122,12 @@ class Command(BaseCommand):
                         _seed_exam_types(tenant)
                         self.stdout.write("    ✓ exam types")
 
-                    if not step or step == 'components':
+                    # Only when asked for by name. This command runs on every
+                    # deploy, and assessment components are each school's own
+                    # setup: a new school gets its defaults from the tenant
+                    # post_save signal. Even then, a level that already has
+                    # components is left alone.
+                    if step == 'components':
                         _seed_assessment_components(tenant)
                         self.stdout.write("    ✓ assessment components")
 
