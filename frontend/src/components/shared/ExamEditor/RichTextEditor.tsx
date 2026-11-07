@@ -195,7 +195,7 @@ interface MenuBarProps {
   simplified?: boolean;
   onImageUploaded: (url: string) => void;
   onFormula: () => void;
-  onDraw: () => void;
+  onDraw: (items?: DrawingItem[]) => void;
 }
 
 const MenuBar: React.FC<MenuBarProps> = ({
@@ -402,7 +402,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
         {showShapePanel && (
           <ShapePanel
             onClose={() => setShowShapePanel(false)}
-            onDraw={() => { setShowShapePanel(false); onDraw(); }}
+            onDraw={(items) => { setShowShapePanel(false); onDraw(items); }}
             onInsert={(dataUrl, label, size) => {
               insertImage(editor, {
                 src: dataUrl,
@@ -417,7 +417,7 @@ const MenuBar: React.FC<MenuBarProps> = ({
       </div>
 
       {/* Drawing board: several shapes arranged and labelled, inserted as one picture. */}
-      <button type="button" onClick={onDraw}
+      <button type="button" onClick={() => onDraw()}
         className="px-3 py-1 rounded text-sm font-medium bg-white text-gray-700 hover:bg-gray-200 transition"
         title="Draw a diagram — freehand pen, shapes, arrows and labels on one sheet">
         ✏️ Draw
@@ -821,7 +821,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
             simplified={simplified}
             onImageUploaded={() => {}}
             onFormula={openFormulaDialog}
-            onDraw={() => setDrawing({ items: null, editing: null })}
+            onDraw={(items) => setDrawing({ items: items ?? null, editing: null })}
           />
         )}
 
@@ -898,6 +898,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           initialItems={drawing.items}
           initialMargin={drawing.margin}
           initialBackground={drawing.background}
+          editingExisting={!!drawing.editing}
           onInsert={handleDrawingSave}
           onClose={() => setDrawing(null)}
         />

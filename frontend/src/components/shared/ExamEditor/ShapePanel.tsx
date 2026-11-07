@@ -16,7 +16,7 @@
 import React, { useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { SHAPE_CATEGORIES, tightBox } from './shapeLibrary';
-import { shapeDrawing } from './ShapeCanvas';
+import { type DrawingItem, shapeDrawing, shapeItem } from './ShapeCanvas';
 
 // ─── SVG builder ──────────────────────────────────────────────────────────────
 
@@ -52,8 +52,11 @@ interface ShapePanelProps {
   /** `width` is the picture's width in pixels. */
   onInsert: (dataUrl: string, altText: string, width: number) => void;
   onClose: () => void;
-  /** Opens the drawing board, where shapes can be labelled. */
-  onDraw?: () => void;
+  /**
+   * Opens the drawing board, where shapes can be labelled: empty, or with
+   * the shape picked here already on it.
+   */
+  onDraw?: (items?: DrawingItem[]) => void;
 }
 
 /** Any size from a dot to most of a line; it can be changed again in the question. */
@@ -258,11 +261,27 @@ const ShapePanel: React.FC<ShapePanelProps> = ({ onInsert, onClose, onDraw }) =>
             Insert Shape
           </button>
 
-          {/* Labels go on in the drawing board, which this shape also opens in. */}
+          {/* Labels go on in the drawing board: the shape goes straight there,
+              selected, with its Label sides / Label corners / Mark angles
+              buttons showing. Inserting it first and then finding "Edit
+              drawing" on it was a step teachers didn't find. */}
+          {onDraw && selectedShape && (
+            <button
+              type="button"
+              onClick={() => {
+                const item = shapeItem(selectedShape.label, cfg.fillColor, cfg.strokeColor, cfg.strokeWidth, Math.max(cfg.size, 160));
+                if (item) onDraw([item]);
+              }}
+              className="w-full py-2 border border-blue-300 bg-blue-50 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors"
+            >
+              Insert and label it ✏️ <span className="block text-[11px] font-normal">sides, corners, angles, height, base…</span>
+            </button>
+          )}
+
           {onDraw && (
             <button
               type="button"
-              onClick={onDraw}
+              onClick={() => onDraw()}
               className="w-full py-2 border border-gray-300 text-gray-700 rounded-xl text-xs font-medium hover:bg-gray-50 transition-colors"
             >
               Need freehand, labels or several shapes? Open the drawing board ✏️

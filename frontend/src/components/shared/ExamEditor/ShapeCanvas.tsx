@@ -327,6 +327,127 @@ const evenBox = (fromX: number, fromY: number, x: number, y: number) => {
   return { x: x < fromX ? fromX - side : fromX, y: y < fromY ? fromY - side : fromY, w: side, h: side };
 };
 
+/**
+ * What each side starts out called, in the order of the shape's corners
+ * (side i runs from corner i to corner i + 1); null leaves a side unlabelled.
+ * Shapes not listed get a, b, c… on every side.
+ */
+const SIDE_NAMES: Partial<Record<ShapeKind, (string | null)[]>> = {
+  // Corners: top, bottom right, bottom left (the right angle).
+  right_triangle: ['hypotenuse', 'base', 'height'],
+  // Corners: top left, top right, bottom right, bottom left.
+  rect: ['length', 'breadth', null, null],
+  square: ['side', null, null, null],
+};
+
+/** Labels just outside each side, or each corner, of a shape. */
+const edgeLabels = (shape: BoxLike, corners: [number, number][], what: 'sides' | 'corners'): TextItem[] => {
+  const centre = {
+    x: corners.reduce((sum, [x]) => sum + x, 0) / corners.length,
+    y: corners.reduce((sum, [, y]) => sum + y, 0) / corners.length,
+  };
+  const names = what === 'sides' && !isSymbol(shape) ? SIDE_NAMES[shape.kind] : undefined;
+  const fontSize = 16;
+  const labels: TextItem[] = [];
+  corners.forEach(([cx, cy], i) => {
+    const name = names ? names[i] : String.fromCharCode((what === 'corners' ? 65 : 97) + i);
+    if (!name) return;
+    const [nx, ny] = corners[(i + 1) % corners.length];
+    const [x, y] = what === 'corners' ? [cx, cy] : [(cx + nx) / 2, (cy + ny) / 2];
+    const away = Math.hypot(x - centre.x, y - centre.y) || 1;
+    const gap = what === 'corners' ? 14 : 16;
+    const sideways = (x - centre.x) / away;
+    const anchor: TextItem['anchor'] = sideways > 0.5 ? undefined : sideways < -0.5 ? 'end' : 'middle';
+    labels.push({
+      id: newId(), kind: 'text', anchor, fill: shape.stroke, fontSize, text: name,
+      x: round1(x + ((x - centre.x) / away) * gap),
+      // Baseline a little below the spot, so the letters sit centred on it.
+      y: round1(y + ((y - centre.y) / away) * gap + fontSize * 0.35),
+    });
+  });
+  return labels;
+};
+
+/**
+ * A colour that reads inside a shape: its line colour, or white on a dark
+ * fill, where marks in the line colour were lost (θ in blue on blue).
+ */
+const inkInside = (shape: BoxLike): string => {
+  const hex = /^#([0-9a-f]{6})$/i.exec(shape.fill)?.[1];
+  if (!hex) return shape.stroke;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lightness = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lightness < 0.55 ? '#ffffff' : shape.stroke;
+};
+
+/** Letters for angles, in the order maths questions use them. */
+const ANGLE_NAMES = ['θ', 'α', 'β', 'γ', 'δ', 'φ', 'ψ', 'ω'];
+
+/** Shapes whose angles are all right angles, already plain to see. */
+const SQUARE_CORNERED = new Set<string>(['rect', 'square']);
+
+/**
+ * An arc inside each angle of a shape with a letter beside it (θ, α, β…),
+ * for the teacher to change to the angle's size. A right-angled triangle's
+ * right angle keeps its little square instead.
+ */
+const angleMarks = (shape: BoxLike, corners: [number, number][]): DrawingItem[] => {
+  const count = corners.length;
+  const marks: DrawingItem[] = [];
+  const ink = inkInside(shape);
+  let named = 0;
+  corners.forEach(([vx, vy], i) => {
+    if (!isSymbol(shape) && shape.kind === 'right_triangle' && i === 2) return;
+    const [px, py] = corners[(i + count - 1) % count];
+    const [nx, ny] = corners[(i + 1) % count];
+    const from = Math.atan2(py - vy, px - vx);
+    // The turn towards the next side, the short way round: inside the shape.
+    let sweep = Math.atan2(ny - vy, nx - vx) - from;
+    while (sweep <= -Math.PI) sweep += 2 * Math.PI;
+    while (sweep > Math.PI) sweep -= 2 * Math.PI;
+    const shortest = Math.min(Math.hypot(px - vx, py - vy), Math.hypot(nx - vx, ny - vy));
+    const radius = Math.max(10, Math.min(24, shortest * 0.3));
+    const points: number[] = [];
+    for (let s = 0; s <= 12; s++) {
+      const a = from + (sweep * s) / 12;
+      points.push(round1(vx + radius * Math.cos(a)), round1(vy + radius * Math.sin(a)));
+    }
+    marks.push({
+      id: newId(), kind: 'pen', points, stroke: ink,
+      strokeWidth: Math.max(1, Math.min(2, shape.strokeWidth * 0.75)),
+    });
+    const middle = from + sweep / 2;
+    const reach = radius + 11;
+    const fontSize = 15;
+    marks.push({
+      id: newId(), kind: 'text', anchor: 'middle', fill: ink, fontSize,
+      text: ANGLE_NAMES[named++ % ANGLE_NAMES.length],
+      x: round1(vx + reach * Math.cos(middle)),
+      y: round1(vy + reach * Math.sin(middle) + fontSize * 0.35),
+    });
+  });
+  return marks;
+};
+
+/**
+ * A basic Designer shape as the board's own shape, so it can be labelled.
+ * Shapes inserted from the Shape Designer between 6 and 7 Nov 2026 were saved
+ * as Designer shapes, which offered no Label sides or Mark angles; they turn
+ * into the board's own shape when opened. Everything else is left as it is.
+ */
+const asOwnShape = (item: DrawingItem): DrawingItem => {
+  if (!isSymbol(item)) return item;
+  const own = SHAPES.find((entry) => entry.label === item.shape);
+  if (!own) return item;
+  const pad = item.strokeWidth / 2;
+  return {
+    id: item.id, kind: own.kind,
+    x: round1(item.x + pad), y: round1(item.y + pad),
+    w: round1(Math.max(MIN_SIZE, item.w - item.strokeWidth)), h: round1(Math.max(MIN_SIZE, item.h - item.strokeWidth)),
+    fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, rotation: item.rotation,
+  };
+};
+
 /** An item moved by dx, dy. */
 const moved = (item: DrawingItem, dx: number, dy: number): DrawingItem => {
   if (isPen(item)) return { ...item, points: item.points.map((v, i) => round1(v + (i % 2 ? dy : dx))) };
@@ -562,20 +683,41 @@ export const drawingToDataUrl = (items: DrawingItem[], background: string, margi
  * or labelled. `size` is its longer side and `strokeWidth` is in the
  * Designer's 100 x 100 square, as the Designer sets them.
  */
-export const shapeDrawing = (
-  label: string, fill: string, stroke: string, strokeWidth: number, size: number, background: string,
-): { dataUrl: string; width: number } | null => {
+export const shapeItem = (
+  label: string, fill: string, stroke: string, strokeWidth: number, size: number,
+): DrawingItem | null => {
   const shape = findLibraryShape(label);
   if (!shape) return null;
   const vb = tightBox(shape.path(fill, stroke, strokeWidth), strokeWidth);
   const scale = size / Math.max(vb.w, vb.h);
   const w = round1(vb.w * scale); const h = round1(vb.h * scale);
-  const item: SymbolItem = {
+  const lineWidth = Math.round(strokeWidth * scale * 100) / 100;
+  // Somewhere near the middle of the sheet, for when it is opened there.
+  const x = round1((CANVAS_WIDTH - w) / 2); const y = round1((CANVAS_HEIGHT - h) / 2);
+  // A basic shape the board draws itself goes in as the board's own shape, so
+  // its sides, corners and angles can be labelled. As a Designer shape it could
+  // only be moved and stretched: a maths teacher couldn't mark the height and
+  // base of a right-angled triangle.
+  const own = SHAPES.find((entry) => entry.label === label);
+  if (own) {
+    const pad = lineWidth / 2;
+    return {
+      id: newId(), kind: own.kind, x: x + pad, y: y + pad,
+      w: round1(Math.max(MIN_SIZE, w - lineWidth)), h: round1(Math.max(MIN_SIZE, h - lineWidth)),
+      fill, stroke, strokeWidth: lineWidth,
+    };
+  }
+  return {
     id: newId(), kind: 'symbol', shape: label, vb: [vb.x, vb.y, vb.w, vb.h],
-    // Somewhere near the middle of the sheet, for when it is opened there.
-    x: round1((CANVAS_WIDTH - w) / 2), y: round1((CANVAS_HEIGHT - h) / 2), w, h,
-    fill, stroke, strokeWidth: Math.round(strokeWidth * scale * 100) / 100,
+    x, y, w, h, fill, stroke, strokeWidth: lineWidth,
   };
+};
+
+export const shapeDrawing = (
+  label: string, fill: string, stroke: string, strokeWidth: number, size: number, background: string,
+): { dataUrl: string; width: number } | null => {
+  const item = shapeItem(label, fill, stroke, strokeWidth, size);
+  if (!item) return null;
   const items = [item];
   return { dataUrl: drawingToDataUrl(items, background, 0), width: drawingBounds(items, 0).w };
 };
@@ -638,6 +780,8 @@ interface Props {
   initialMargin?: number;
   /** The sheet colour it was saved with. */
   initialBackground?: string;
+  /** Changing a drawing already in the question, rather than adding one. */
+  editingExisting?: boolean;
   /** The picture, and how wide it is in its own pixels. */
   onInsert: (dataUrl: string, width: number) => void;
   onClose: () => void;
@@ -682,12 +826,15 @@ type Drag = {
   last?: Point;
 };
 
-const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, initialBackground, onInsert, onClose }) => {
-  const [items, setItems] = useState<DrawingItem[]>(initialItems ?? []);
+const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, initialBackground, editingExisting, onInsert, onClose }) => {
+  const [items, setItems] = useState<DrawingItem[]>(() => (initialItems ?? []).map(asOwnShape));
   const [past, setPast] = useState<DrawingItem[][]>([]);
   const [future, setFuture] = useState<DrawingItem[][]>([]);
   const [tool, setTool] = useState<Tool>(initialItems?.length ? 'select' : 'pen');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // A single shape opened from the Shape Designer starts selected, so its
+  // Label sides / Label corners / Mark angles buttons are there at once.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialItems?.length === 1 ? initialItems[0].id : null);
   const [fill, setFill] = useState('#dbeafe');
   const [stroke, setStroke] = useState('#0f172a');
   const [strokeWidth, setStrokeWidth] = useState(3);
@@ -990,39 +1137,20 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, initialBack
 
   /**
    * Put a label just outside each side, or each corner, of the selected
-   * shape - "a", "b", "c" or "A", "B", "C" - for the teacher to change to the
-   * lengths or names the question gives.
+   * shape, or an arc and a letter inside each angle, for the teacher to change
+   * to the lengths, names or sizes the question gives. A right-angled
+   * triangle's sides start as its height, base and hypotenuse, and a
+   * rectangle's as its length and breadth, the way a maths question names them.
    */
-  const labelShape = (what: 'sides' | 'corners') => {
+  const labelShape = (what: 'sides' | 'corners' | 'angles') => {
     if (!selected || !isBox(selected)) return;
     const corners = cornersOf(selected);
     if (!corners) return;
-    const centre = {
-      x: corners.reduce((sum, [x]) => sum + x, 0) / corners.length,
-      y: corners.reduce((sum, [, y]) => sum + y, 0) / corners.length,
-    };
-    const spots = what === 'corners'
-      ? corners
-      : corners.map(([x, y], i) => {
-        const [nx, ny] = corners[(i + 1) % corners.length];
-        return [(x + nx) / 2, (y + ny) / 2] as [number, number];
-      });
-    const fontSize = 16;
-    const labels: TextItem[] = spots.map(([x, y], i) => {
-      const away = Math.hypot(x - centre.x, y - centre.y) || 1;
-      const gap = what === 'corners' ? 14 : 16;
-      const sideways = (x - centre.x) / away;
-      const anchor: TextItem['anchor'] = sideways > 0.5 ? undefined : sideways < -0.5 ? 'end' : 'middle';
-      return {
-        id: newId(), kind: 'text', anchor, fill: selected.stroke, fontSize,
-        text: String.fromCharCode((what === 'corners' ? 65 : 97) + i),
-        x: round1(x + ((x - centre.x) / away) * gap),
-        // Baseline a little below the spot, so the letters sit centred on it.
-        y: round1(y + ((y - centre.y) / away) * gap + fontSize * 0.35),
-      };
-    });
-    commit([...items, ...labels]);
-    setSelectedId(labels[0]?.id ?? null);
+    const added = what === 'angles' ? angleMarks(selected, corners) : edgeLabels(selected, corners, what);
+    if (!added.length) return;
+    commit([...items, ...added]);
+    // The first label, so the teacher can type over it straight away.
+    setSelectedId(added.find(isText)?.id ?? null);
   };
 
   /** Colours go on the line when the pen is in hand or the selection has no fill to colour. */
@@ -1330,6 +1458,13 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, initialBack
                 className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50">
                 Label corners
               </button>
+              {!SQUARE_CORNERED.has(selected.kind) && (
+                <button type="button" onClick={() => labelShape('angles')}
+                  title="Mark each angle with an arc and a letter (θ, α…) to change to its size, e.g. 30°"
+                  className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                  Mark angles
+                </button>
+              )}
             </span>
           )}
 
@@ -1365,7 +1500,7 @@ const ShapeCanvas: React.FC<Props> = ({ initialItems, initialMargin, initialBack
           <button type="button" disabled={!items.length}
             onClick={() => onInsert(drawingToDataUrl(items, background, margin), kept.w)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            {initialItems?.length ? 'Save changes' : 'Insert drawing'}
+            {editingExisting ? 'Save changes' : 'Insert drawing'}
           </button>
         </div>
       </div>
