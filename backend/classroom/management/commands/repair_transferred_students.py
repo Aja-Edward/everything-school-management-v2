@@ -8,13 +8,19 @@ parent page and their results still name the old class. Dry run by default:
     manage.py repair_transferred_students                       # every school
     manage.py repair_transferred_students --tenant kebi-international-academy
     manage.py repair_transferred_students --tenant <slug> --apply
+
+It also re-enrols students who are in no classroom at all although their
+record names a class and section. Saving a student moved the old way used to
+end their enrollment and then fail to create the new one.
 """
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from classroom.student_placement import (
+    enroll,
     find_left_behind_transfers,
+    find_unenrolled,
     student_fields_for_classroom,
 )
 from students.models import Student
@@ -51,12 +57,13 @@ class Command(BaseCommand):
                 raise CommandError(f"No school with slug: {', '.join(sorted(missing))}")
 
         apply = options["apply"]
-        total_fixed = total_unclear = 0
+        total_fixed = total_unclear = total_enrolled = 0
         for tenant in tenants:
             students = Student.objects.filter(tenant=tenant).select_related(
                 "user", "student_class", "section", "stream")
             repairable, unclear = find_left_behind_transfers(students)
-            if not repairable and not unclear:
+            unenrolled = find_unenrolled(students)
+            if not repairable and not unclear and not unenrolled:
                 continue
 
             self.stdout.write(f"\n{tenant.name} ({tenant.slug})")
@@ -71,6 +78,12 @@ class Command(BaseCommand):
                         # update() rather than save(): the post_save signal
                         # would pick its own classroom for the section.
                         Student.objects.filter(pk=student.pk).update(**fields)
+                for student, classroom in unenrolled:
+                    self.stdout.write(
+                        f"  {'re-enrolled' if apply else 'would re-enrol'} {student.full_name} "
+                        f"(id {student.id}), {describe(student)}, in no class -> {classroom.name}")
+                    if apply:
+                        enroll(student, classroom)
             for student, active in unclear:
                 rooms = ", ".join(e.classroom.name for e in active) or "none"
                 self.stdout.write(
@@ -78,8 +91,13 @@ class Command(BaseCommand):
                     f"is {describe(student)} but enrolled in: {rooms}")
             total_fixed += len(repairable)
             total_unclear += len(unclear)
+            total_enrolled += len(unenrolled)
 
         verb = "Moved" if apply else "Would move"
         self.stdout.write(
             f"\n{verb} {total_fixed} student(s); {total_unclear} disagree in a way "
-            f"this command doesn't guess at." + ("" if apply else " Dry run: nothing written."))
+            f"this command doesn't guess at.")
+        verb = "Re-enrolled" if apply else "Would re-enrol"
+        self.stdout.write(
+            f"{verb} {total_enrolled} student(s) who were in no class."
+            + ("" if apply else " Dry run: nothing written."))

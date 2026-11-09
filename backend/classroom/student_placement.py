@@ -29,6 +29,68 @@ def student_fields_for_classroom(student, classroom):
     return fields
 
 
+def section_classroom(section):
+    """The classroom a student in `section` belongs in: an active one,
+    preferring the current session and term."""
+    from classroom.models import Classroom
+
+    return (
+        Classroom.objects.filter(section=section, tenant_id=section.tenant_id, is_active=True)
+        .order_by("-academic_session__is_current", "-term__is_current", "id")
+        .first()
+    )
+
+
+def enroll(student, classroom):
+    """
+    Make `classroom` the student's one active enrollment.
+
+    A student has at most one enrollment row per classroom, so going back to
+    a classroom they once left reactivates that row. Creating a new one
+    failed on the unique constraint after the old enrollment had already been
+    ended, leaving the student in no class at all.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from classroom.models import StudentEnrollment
+
+    with transaction.atomic():
+        StudentEnrollment.objects.filter(student=student, is_active=True).exclude(
+            classroom=classroom).update(is_active=False)
+        enrollment, created = StudentEnrollment.objects.get_or_create(
+            student=student, classroom=classroom,
+            defaults={"tenant_id": student.tenant_id, "is_active": True})
+        if not created and not enrollment.is_active:
+            enrollment.is_active = True
+            enrollment.enrollment_date = timezone.now().date()
+            enrollment.save(update_fields=["is_active", "enrollment_date"])
+    return enrollment
+
+
+def find_unenrolled(students):
+    """
+    Active students with a class and section but no active enrollment, paired
+    with the classroom they belong in. Teachers' class lists leave them out.
+    """
+    from classroom.models import StudentEnrollment
+
+    students = students.filter(is_active=True, section__isnull=False, student_class__isnull=False)
+    enrolled = set(
+        StudentEnrollment.objects.filter(student__in=students, is_active=True)
+        .values_list("student_id", flat=True)
+    )
+    found, rooms = [], {}
+    for student in students.select_related("section"):
+        if student.id in enrolled or student.section.class_grade_id != student.student_class_id:
+            continue
+        if student.section_id not in rooms:
+            rooms[student.section_id] = section_classroom(student.section)
+        if rooms[student.section_id]:
+            found.append((student, rooms[student.section_id]))
+    return found
+
+
 def find_left_behind_transfers(students):
     """
     Students whose own class and section disagree with their enrollment.
