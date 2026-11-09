@@ -15,7 +15,7 @@ import QuestionSectionTheory from './QuestionSectionTheory';
 import QuestionSectionPractical from './QuestionSectionPractical';
 import QuestionSectionCustom from './QuestionSectionCustom';
 import { SoundClipField } from '@/components/shared/ExamEditor';
-import ExamPlainPage, { convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
+import ExamPlainPage, { announceConversionWarnings, convertPlainPage, convertedInstructions, countQuestions, plainPageHasContent } from '@/components/shared/ExamPlainPage';
 import SectionPassageField, { hasPassages } from '@/components/shared/SectionPassageField';
 import { toast } from 'react-toastify';
 import type { SoundClip } from '@/services/SoundClipService';
@@ -507,6 +507,7 @@ const ExamFormModal: React.FC<ExamFormModalProps> = ({ open, exam, onClose, onSu
           const converted = await convertPlainPage(plainPage);
           sectionInstructions = { ...sectionInstructions, ...convertedInstructions(converted) };
           applyInstructions(converted);
+          announceConversionWarnings(converted);
           examTotal = questionMarks(converted) || examTotal;
           sections = {
             objective_questions: converted.objective_questions, theory_questions: converted.theory_questions,

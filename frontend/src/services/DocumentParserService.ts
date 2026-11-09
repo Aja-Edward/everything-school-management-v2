@@ -234,6 +234,9 @@ export function convertParsedDataToExamFormat(parsedData: ParsedExamData) {
     practical_instructions: '',
     objective_passage: '',
     theory_passage: '',
+    // What the parser left out or had to guess at, in words for the teacher:
+    // a question with no options, a section nothing could be read from.
+    warnings: [...(parsedData.metadata?.warnings ?? [])],
   };
 
   for (const section of parsedData.sections) {
@@ -246,6 +249,7 @@ export function convertParsedDataToExamFormat(parsedData: ParsedExamData) {
       processSection(section, examData);
     } catch (error) {
       console.error('Error processing section:', section.name, error);
+      examData.warnings.push(`${section.name || 'A section'} could not be added, so it was left out.`);
     }
   }
 
