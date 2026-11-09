@@ -279,19 +279,27 @@ export class ExamService {
    */
   static async getExams(filters: ExamFilters = {}): Promise<Exam[]> {
     try {
-      const params = new URLSearchParams();
-      
-      // Add filters to params
+      const params: Record<string, string> = {};
       Object.entries(filters).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
-          params.append(key, value.toString());
+          params[key] = value.toString();
         }
       });
-      
-      const queryString = params.toString();
-      const endpoint = `${this.baseUrl}/exams/${queryString ? `?${queryString}` : ''}`;
-      const response = await api.get(endpoint);
-      return response.results || response || [];
+
+      // The endpoint pages its results (20 a page by default). Reading only
+      // the first page left a school's admin seeing just 20 exams, so walk
+      // every page.
+      const all: Exam[] = [];
+      for (let page = 1; ; page++) {
+        const response = await api.get(`${this.baseUrl}/exams/`, {
+          ...params,
+          page,
+          page_size: 100,
+        });
+        if (Array.isArray(response)) return response;
+        all.push(...(response?.results || []));
+        if (!response?.next) return all;
+      }
     } catch (error) {
       console.error('❌ ExamService: Error fetching exams:', error);
       throw error;

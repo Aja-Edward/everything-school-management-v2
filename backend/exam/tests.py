@@ -185,6 +185,61 @@ class FilteringTheExamListTest(ExamApiTestCase):
         self.assertEqual(self.titles("is_online=false"), ["First Term Mathematics"])
 
 
+class TheAdminSeesEveryExamTest(ExamApiTestCase):
+    """
+    The list comes 20 exams a page. The admin screens read only the first
+    page, so a school whose teachers had set more than 20 exams showed its
+    admin just 20 of them. Every page together holds every exam, and a
+    teacher's pages still hold only their own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.teacher_user = self.make_user("teacher")
+        teacher = Teacher.objects.get(user=self.teacher_user)
+        self.other_teacher_user = self.make_user("teacher")
+        other_teacher = Teacher.objects.get(user=self.other_teacher_user)
+        # 1 exam from the base setUp, 20 from one teacher and 4 from another.
+        self.teacher_exams = [self.make_exam(self.school, teacher) for _ in range(20)]
+        self.other_exams = [self.make_exam(self.school, other_teacher) for _ in range(4)]
+        self.all_ids = {self.exam.id} | {e.id for e in self.teacher_exams + self.other_exams}
+
+    def ids_across_pages(self, url):
+        ids, pages = [], 0
+        while url:
+            response = self.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+            ids.extend(exam["id"] for exam in response.data["results"])
+            url, pages = response.data["next"], pages + 1
+        return ids, pages
+
+    def test_the_admin_gets_all_25_exams_across_the_pages(self):
+        self.login("admin")
+
+        first = self.get(EXAMS)
+        self.assertEqual(first.data["count"], 25)
+        self.assertEqual(len(first.data["results"]), 20)
+
+        ids, pages = self.ids_across_pages(EXAMS)
+        self.assertEqual(pages, 2)
+        self.assertEqual(len(ids), 25)
+        self.assertEqual(set(ids), self.all_ids)
+
+    def test_the_screens_page_of_100_holds_them_all_at_once(self):
+        self.login("admin")
+
+        ids, pages = self.ids_across_pages(f"{EXAMS}?page=1&page_size=100")
+        self.assertEqual(pages, 1)
+        self.assertEqual(set(ids), self.all_ids)
+
+    def test_a_teacher_still_sees_only_their_own_exams(self):
+        self.client.force_authenticate(user=self.teacher_user)
+
+        ids, pages = self.ids_across_pages(EXAMS)
+        self.assertEqual(pages, 1)
+        self.assertEqual(set(ids), {e.id for e in self.teacher_exams})
+
+
 class SavingAnEditedExamTest(ExamApiTestCase):
     """
     The exam form reads an exam, changes a field and sends the lot back. Its
