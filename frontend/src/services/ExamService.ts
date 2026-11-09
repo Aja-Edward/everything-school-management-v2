@@ -222,7 +222,20 @@ export interface ExamFilters {
   venue?: string;
   term?: string;
   session_year?: string;
+  term_type?: number;
   ordering?: string;
+}
+
+export interface ExamPage {
+  results: Exam[];
+  count: number;
+  totalPages: number;
+  page: number;
+}
+
+export interface ExamStatusCounts {
+  total: number;
+  by_status: Record<string, number>;
 }
 
 export interface ExamSchedule {
@@ -277,18 +290,57 @@ export class ExamService {
   /**
    * Get all exams with optional filtering
    */
+  private static filterParams(filters: ExamFilters): Record<string, string> {
+    const params: Record<string, string> = {};
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params[key] = value.toString();
+      }
+    });
+    return params;
+  }
+
+  /**
+   * One page of exams, filtered on the server. Use this for lists people
+   * page through: a school can have hundreds of exams.
+   */
+  static async getExamPage(
+    filters: ExamFilters = {},
+    page = 1,
+    pageSize = 20,
+  ): Promise<ExamPage> {
+    const response = await api.get(`${this.baseUrl}/exams/`, {
+      ...this.filterParams(filters),
+      page,
+      page_size: pageSize,
+    });
+    if (Array.isArray(response)) {
+      return { results: response, count: response.length, totalPages: 1, page: 1 };
+    }
+    const count = response?.count ?? 0;
+    return {
+      results: response?.results || [],
+      count,
+      totalPages: response?.total_pages ?? Math.max(1, Math.ceil(count / pageSize)),
+      page: response?.current_page ?? page,
+    };
+  }
+
+  /** How many exams match `filters`, by status code, across every page. */
+  static async getExamStatusCounts(filters: ExamFilters = {}): Promise<ExamStatusCounts> {
+    const response = await api.get(
+      `${this.baseUrl}/exams/status-counts/`, this.filterParams(filters));
+    return { total: response?.total ?? 0, by_status: response?.by_status ?? {} };
+  }
+
+  /**
+   * Every exam matching `filters`, fetched page by page. Only for callers
+   * that truly need the whole set; a list people browse should use
+   * getExamPage.
+   */
   static async getExams(filters: ExamFilters = {}): Promise<Exam[]> {
     try {
-      const params: Record<string, string> = {};
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          params[key] = value.toString();
-        }
-      });
-
-      // The endpoint pages its results (20 a page by default). Reading only
-      // the first page left a school's admin seeing just 20 exams, so walk
-      // every page.
+      const params = this.filterParams(filters);
       const all: Exam[] = [];
       for (let page = 1; ; page++) {
         const response = await api.get(`${this.baseUrl}/exams/`, {

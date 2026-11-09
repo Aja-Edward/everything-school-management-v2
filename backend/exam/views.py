@@ -321,6 +321,9 @@ class ExamViewSet(
         "exam_type",
         "status",
         "difficulty_level",  # FK fields
+        # The list's term and session columns read the schedule on every row.
+        "exam_schedule__term__term_type",
+        "exam_schedule__academic_session",
     ).prefetch_related("invigilators")
 
     filter_backends = [
@@ -331,7 +334,9 @@ class ExamViewSet(
     filterset_class = ExamFilter
     search_fields = ["title", "description", "code", "subject__name", "venue"]
     ordering_fields = ["exam_date", "start_time", "title", "created_at"]
-    ordering = ["-exam_date", "start_time"]
+    # id breaks ties, so exams on the same date and time keep their place
+    # from one page to the next instead of repeating or going missing.
+    ordering = ["-exam_date", "start_time", "-id"]
     permission_classes = [IsTeacherOrAdmin]
     pagination_class = StandardResultsPagination
 
@@ -996,6 +1001,20 @@ class ExamViewSet(
             )
         exams = self.get_queryset().filter(grade_level_id=grade_id)
         return Response(self.get_serializer(exams, many=True).data)
+
+    @action(detail=False, methods=["get"], url_path="status-counts")
+    def status_counts(self, request):
+        """
+        How many exams match the list's filters, by status code. The exam
+        list is read a page at a time, so its summary cards can't count the
+        rows they were given.
+        """
+        queryset = self.filter_queryset(self.get_queryset()).order_by()
+        by_status = {
+            (row["status__code"] or ""): row["n"]
+            for row in queryset.values("status__code").annotate(n=Count("id"))
+        }
+        return Response({"total": sum(by_status.values()), "by_status": by_status})
 
     @action(detail=False, methods=["get"])
     def completed(self, request):

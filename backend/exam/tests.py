@@ -185,13 +185,8 @@ class FilteringTheExamListTest(ExamApiTestCase):
         self.assertEqual(self.titles("is_online=false"), ["First Term Mathematics"])
 
 
-class TheAdminSeesEveryExamTest(ExamApiTestCase):
-    """
-    The list comes 20 exams a page. The admin screens read only the first
-    page, so a school whose teachers had set more than 20 exams showed its
-    admin just 20 of them. Every page together holds every exam, and a
-    teacher's pages still hold only their own.
-    """
+class ManyExamsTestCase(ExamApiTestCase):
+    """25 exams at one school: 1 with no teacher, 20 from one teacher, 4 from another."""
 
     def setUp(self):
         super().setUp()
@@ -212,6 +207,15 @@ class TheAdminSeesEveryExamTest(ExamApiTestCase):
             ids.extend(exam["id"] for exam in response.data["results"])
             url, pages = response.data["next"], pages + 1
         return ids, pages
+
+
+class TheAdminSeesEveryExamTest(ManyExamsTestCase):
+    """
+    The list comes 20 exams a page. The admin screens read only the first
+    page, so a school whose teachers had set more than 20 exams showed its
+    admin just 20 of them. Every page together holds every exam, and a
+    teacher's pages still hold only their own.
+    """
 
     def test_the_admin_gets_all_25_exams_across_the_pages(self):
         self.login("admin")
@@ -238,6 +242,134 @@ class TheAdminSeesEveryExamTest(ExamApiTestCase):
         ids, pages = self.ids_across_pages(EXAMS)
         self.assertEqual(pages, 1)
         self.assertEqual(set(ids), {e.id for e in self.teacher_exams})
+
+
+class PagingTheAdminExamListTest(ManyExamsTestCase):
+    """
+    The admin exam screen asks for one page of 20 at a time, with its search
+    and filters sent to the server, so they cover every exam rather than the
+    page on screen. Its summary cards come from status-counts.
+    """
+
+    COUNTS = f"{EXAMS}status-counts/"
+
+    def setUp(self):
+        super().setUp()
+        self.login("admin")
+
+    def page(self, query):
+        response = self.get(f"{EXAMS}?{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return response.data
+
+    def test_pages_of_20_split_25_exams_without_repeats(self):
+        # Every exam has the same date and time, so only the id keeps
+        # their order fixed from one page to the next.
+        first = self.page("page=1&page_size=20")
+        second = self.page("page=2&page_size=20")
+
+        self.assertEqual((first["count"], first["total_pages"]), (25, 2))
+        self.assertEqual((len(first["results"]), len(second["results"])), (20, 5))
+        first_ids = {e["id"] for e in first["results"]}
+        second_ids = {e["id"] for e in second["results"]}
+        self.assertFalse(first_ids & second_ids)
+        self.assertEqual(first_ids | second_ids, self.all_ids)
+
+    def test_a_status_filter_covers_every_page(self):
+        approved = ExamStatus.objects.get(tenant=self.school, code="approved")
+        Exam.objects.filter(pk__in=[e.id for e in self.teacher_exams]).update(status=approved)
+
+        # The 20 approved exams are spread over both unfiltered pages.
+        approved_ids = {e.id for e in self.teacher_exams}
+        unfiltered_first = {e["id"] for e in self.page("page=1&page_size=20")["results"]}
+        self.assertTrue(approved_ids - unfiltered_first)
+
+        filtered = self.page("status=approved&page=1&page_size=20")
+
+        self.assertEqual((filtered["count"], filtered["total_pages"]), (20, 1))
+        self.assertEqual({e["id"] for e in filtered["results"]}, approved_ids)
+
+    def test_subject_and_class_filters_cover_every_page(self):
+        english = Subject.objects.create(
+            tenant=self.school, code="ENG-PRI", name="English",
+            education_levels=["PRIMARY"])
+        other_class = GradeLevel.objects.filter(
+            tenant=self.school, education_level__code="primary").order_by("order")[1]
+        Exam.objects.filter(pk__in=[e.id for e in self.other_exams]).update(
+            subject=english, grade_level=other_class)
+
+        by_subject = self.page(f"subject={english.id}&page=1&page_size=20")
+        by_class = self.page(f"grade_level={other_class.id}&page=1&page_size=20")
+
+        self.assertEqual(by_subject["count"], 4)
+        self.assertEqual(by_class["count"], 4)
+        self.assertEqual(
+            {e["id"] for e in by_subject["results"]}, {e.id for e in self.other_exams})
+
+    def test_a_term_filter_covers_every_page(self):
+        session = AcademicSession.objects.create(
+            tenant=self.school, name="2026/2027", start_date=date(2026, 9, 7),
+            end_date=date(2027, 7, 23), is_current=True)
+        first_term, _ = TermType.objects.get_or_create(
+            tenant=self.school, code="FT", defaults={"name": "First Term", "display_order": 1})
+        term = Term.objects.create(
+            tenant=self.school, term_type=first_term, academic_session=session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16), is_current=True)
+        schedule = ExamSchedule.objects.create(
+            tenant=self.school, name="First Term Exams", academic_session=session,
+            term=term, start_date=date(2026, 12, 1), end_date=date(2026, 12, 12))
+        in_term = [e.id for e in self.teacher_exams] + [self.other_exams[0].id]
+        Exam.objects.filter(pk__in=in_term).update(exam_schedule=schedule)
+
+        first = self.page(f"term_type={first_term.id}&page=1&page_size=20")
+        second = self.page(f"term_type={first_term.id}&page=2&page_size=20")
+
+        self.assertEqual(first["count"], 21)
+        self.assertEqual(
+            {e["id"] for e in first["results"] + second["results"]}, set(in_term))
+        # An exam on a schedule names its term by id. It used to be the Term
+        # itself, which can't be put in JSON, so the whole list answered 500.
+        self.assertEqual({e["term"] for e in first["results"]}, {term.id})
+        detail = self.get(f"{EXAMS}{in_term[0]}/")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["term"], term.id)
+
+    def test_search_covers_every_page(self):
+        Exam.objects.filter(pk=self.other_exams[3].pk).update(title="Basic Science Mock")
+
+        found = self.page("search=science&page=1&page_size=20")
+
+        self.assertEqual(found["count"], 1)
+        self.assertEqual(found["results"][0]["id"], self.other_exams[3].id)
+
+    def test_status_counts_cover_every_exam_and_follow_the_filters(self):
+        approved = ExamStatus.objects.get(tenant=self.school, code="approved")
+        pending = ExamStatus.objects.get(tenant=self.school, code="pending_approval")
+        Exam.objects.filter(pk__in=[e.id for e in self.teacher_exams[:15]]).update(status=approved)
+        Exam.objects.filter(pk__in=[e.id for e in self.other_exams]).update(status=pending)
+
+        everything = self.get(self.COUNTS)
+        self.assertEqual(everything.status_code, status.HTTP_200_OK, everything.data)
+        self.assertEqual(everything.data["total"], 25)
+        self.assertEqual(
+            everything.data["by_status"],
+            {"approved": 15, "pending_approval": 4, "draft": 6})
+
+        teacher = Teacher.objects.get(user=self.teacher_user)
+        filtered = self.get(f"{self.COUNTS}?teacher={teacher.id}")
+        self.assertEqual(filtered.data, {"total": 20, "by_status": {"approved": 15, "draft": 5}})
+
+    def test_a_teachers_counts_hold_only_their_own_exams(self):
+        self.client.force_authenticate(user=self.other_teacher_user)
+
+        response = self.get(self.COUNTS)
+
+        self.assertEqual(response.data, {"total": 4, "by_status": {"draft": 4}})
+
+    def test_another_schools_exams_are_not_counted(self):
+        response = self.get(self.COUNTS)
+
+        self.assertEqual(response.data["total"], 25)
 
 
 class SavingAnEditedExamTest(ExamApiTestCase):

@@ -222,6 +222,18 @@ class ExamScheduleSerializer(SchoolScopedRelationsMixin, serializers.ModelSerial
 # MAIN EXAM SERIALIZERS
 # ==============================================================================
 
+def _exam_term_id(exam):
+    """
+    The id of the term an exam's schedule belongs to, or None.
+
+    Exam.term is a property that returns the Term itself. Left to
+    ModelSerializer it became a read-only field holding a model instance,
+    which can't be rendered as JSON: any exam on a schedule made the whole
+    exam list answer 500.
+    """
+    return exam.exam_schedule.term_id if exam.exam_schedule_id else None
+
+
 class ExamListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for exam lists"""
 
@@ -234,6 +246,10 @@ class ExamListSerializer(serializers.ModelSerializer):
     # exam created before any schedule exists has no schedule to read.
     academic_session_name = serializers.SerializerMethodField()
     term_name = serializers.SerializerMethodField()
+    term = serializers.SerializerMethodField()
+
+    def get_term(self, obj):
+        return _exam_term_id(obj)
 
     def _current_term(self, tenant_id):
         """The school's current term, looked up once per serializer."""
@@ -370,6 +386,7 @@ class ExamDetailSerializer(serializers.ModelSerializer):
     teacher = TeacherSerializer(read_only=True)
     stream = serializers.SerializerMethodField()
     exam_schedule = ExamScheduleSerializer(read_only=True)
+    term = serializers.SerializerMethodField()
     invigilators = TeacherSerializer(many=True, read_only=True)
 
     # FK objects — full nested serializers
@@ -458,6 +475,9 @@ class ExamDetailSerializer(serializers.ModelSerializer):
         if obj.pass_marks and obj.total_marks and obj.total_marks > 0:
             return round((obj.pass_marks / obj.total_marks) * 100, 2)
         return 0
+
+    def get_term(self, obj):
+        return _exam_term_id(obj)
 
     def get_stream(self, obj):
         if obj.stream:

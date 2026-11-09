@@ -1,7 +1,10 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, Upload, FileDown, Monitor } from "lucide-react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { Search, Plus, X, Filter, Edit2, Printer, CheckCircle, Trash2, Calendar, BookOpen, GraduationCap, FileText, ChevronDown, ChevronLeft, ChevronRight, Upload, FileDown, Monitor } from "lucide-react";
 import { generateExamWordTemplate, generateExamCsvTemplate } from "@/utils/examTemplateGenerator";
-import { Exam, ExamCreateData, ExamUpdateData, ExamFilters, ExamService } from "@/services/ExamService";
+import { Exam, ExamCreateData, ExamUpdateData, ExamFilters, ExamService, ExamStatusCounts } from "@/services/ExamService";
+import api from "@/services/api";
+import classroomService from "@/services/ClassroomService";
+import subjectService from "@/services/SubjectService";
 import ExamFormModal from "./ExamFormModal";
 import PrintPreviewModal from "./PrintPreviewModal";
 import ApprovalModal from "./ApprovalModal";
@@ -23,6 +26,69 @@ const CBTBadge: React.FC<{ paper?: CBTPaper }> = ({ paper }) =>
       CBT {paper.status === "draft" ? "draft" : paper.status}
     </span>
   ) : null;
+
+const PAGE_SIZE = 20;
+
+type Option = { id: number; name: string };
+
+/** A filter picked from a list of named records; 0 means "all". */
+const OptionSelect: React.FC<{
+  label: string;
+  value: number;
+  options: Option[];
+  onChange: (id: number) => void;
+  className?: string;
+}> = ({ label, value, options, onChange, className = "" }) => (
+  <select
+    aria-label={label}
+    value={value || ""}
+    onChange={(e) => onChange(e.target.value ? Number(e.target.value) : 0)}
+    className={`px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${className}`}
+  >
+    <option value="">{label}</option>
+    {options.map((option) => (
+      <option key={option.id} value={option.id}>{option.name}</option>
+    ))}
+  </select>
+);
+
+/** "Showing 21–40 of 134" with Previous/Next, under the exam list. */
+const Pager: React.FC<{
+  page: number;
+  totalPages: number;
+  first: number;
+  last: number;
+  total: number;
+  onPage: (page: number) => void;
+}> = ({ page, totalPages, first, last, total, onPage }) => (
+  <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 px-4 py-3 shadow-sm">
+    <p className="text-sm text-slate-600">
+      Showing <span className="font-semibold text-slate-900">{first}–{last}</span> of{" "}
+      <span className="font-semibold text-slate-900">{total}</span> exams
+    </p>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => onPage(page - 1)}
+        disabled={page <= 1}
+        className="flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <ChevronLeft className="w-4 h-4" /> Previous
+      </button>
+      <span className="text-sm text-slate-600 px-2">Page {page} of {totalPages}</span>
+      <button
+        onClick={() => onPage(page + 1)}
+        disabled={page >= totalPages}
+        className="flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Next <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  </div>
+);
+
+/** A list endpoint answers either a bare array or a page of `results`. */
+const asList = (data: any): any[] =>
+  Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
 
 interface ExamsPageProps {
   searchTerm?: string;
@@ -63,12 +129,59 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   const [localStatus, setLocalStatus] = useState(selectedStatus);
   const [localGrade, setLocalGrade] = useState(selectedGrade);
   const [localSubject, setLocalSubject] = useState(selectedSubject);
+  const [localTerm, setLocalTerm] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Fetch Exams on mount and when filters change
+  // Paging: the server sends one page at a time, filtered across every exam.
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<ExamStatusCounts>({ total: 0, by_status: {} });
+  const [debouncedSearch, setDebouncedSearch] = useState(searchTerm);
+  const latestRequest = useRef(0);
+  // Bumped after a save, delete or approval, to reload the page and its counts.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = () => setRefreshKey((k) => k + 1);
+
+  // Choices for the class, subject and term filters.
+  const [gradeOptions, setGradeOptions] = useState<Option[]>([]);
+  const [subjectOptions, setSubjectOptions] = useState<Option[]>([]);
+  const [termOptions, setTermOptions] = useState<Option[]>([]);
+
+  useEffect(() => {
+    classroomService.getGradeLevels()
+      .then((data) => setGradeOptions(asList(data).map((g: any) => ({ id: g.id, name: g.name }))))
+      .catch((err) => console.warn("Could not load classes:", err));
+    subjectService.getSubjects()
+      .then((data) => setSubjectOptions(
+        asList(data)
+          .map((s: any) => ({ id: s.id, name: s.name }))
+          .sort((a: Option, b: Option) => a.name.localeCompare(b.name))))
+      .catch((err) => console.warn("Could not load subjects:", err));
+    api.get("/api/academics/term-types/", { is_active: true })
+      .then((data) => setTermOptions(asList(data).map((t: any) => ({ id: t.id, name: t.name }))))
+      .catch((err) => console.warn("Could not load terms:", err));
+  }, []);
+
+  // Typing in the search box waits for a pause before asking the server.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(localSearchTerm);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [localSearchTerm]);
+
+  // A changed filter starts again from the first page.
+  const onFilter = <T,>(set: (value: T) => void) => (value: T) => {
+    set(value);
+    setPage(1);
+  };
+
+  // Fetch Exams on mount and when the page or filters change
   useEffect(() => {
     fetchExams();
-  }, [localSearchTerm, localExamType, localStatus, localGrade, localSubject]);
+  }, [debouncedSearch, localExamType, localStatus, localGrade, localSubject, localTerm, page, refreshKey]);
 
   // Which of the listed exams are set up for CBT. A failure only hides the badges.
   useEffect(() => {
@@ -88,21 +201,40 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
   }, []);
 
   const fetchExams = async () => {
+    const request = ++latestRequest.current;
     setLoading(true);
     setError(null);
     try {
       const filters: ExamFilters = {};
-      
-      if (localSearchTerm) filters.search = localSearchTerm;
+
+      if (debouncedSearch) filters.search = debouncedSearch;
       if (localExamType) filters.exam_type = localExamType;
       if (localStatus) filters.status = localStatus;
       if (localGrade) filters.grade_level = localGrade;
       if (localSubject) filters.subject = localSubject;
+      if (localTerm) filters.term_type = localTerm;
 
-      const data = await ExamService.getExams(filters);
-      
+      const [data, counts] = await Promise.all([
+        ExamService.getExamPage(filters, page, PAGE_SIZE),
+        ExamService.getExamStatusCounts(filters).catch((err) => {
+          console.warn("Could not count exams by status:", err);
+          return null;
+        }),
+      ]);
+      // A slower answer to an older request must not replace a newer one.
+      if (request !== latestRequest.current) return;
+
+      // Deleting the last exam on the last page leaves that page empty.
+      if (data.results.length === 0 && page > 1) {
+        setPage(Math.max(1, Math.min(page - 1, data.totalPages)));
+        return;
+      }
+      setTotalCount(data.count);
+      setTotalPages(data.totalPages);
+      if (counts) setStatusCounts(counts);
+
       // CRITICAL: Normalize all exams for display
-      const normalizedExams = (data || []).map(exam => {
+      const normalizedExams = (data.results || []).map(exam => {
         const examWithId = {
           ...exam,
           id: exam.id || (exam as any).pk || (exam as any).exam_id || (exam as any).examId
@@ -117,10 +249,11 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
       
       setExams(normalizedExams);
     } catch (err) {
+      if (request !== latestRequest.current) return;
       setError(err instanceof Error ? err.message : "Failed to load exams");
       console.error("❌ Fetch exams error:", err);
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   };
 
@@ -148,12 +281,14 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
           );
           
           console.log("✅ Exam updated successfully!");
+          refresh();
         } else {
           console.log("➕ Creating new exam");
           savedExam = await ExamService.createExam(examData);
           const normalizedSaved = normalizeExamDataForDisplay(savedExam);
           
           setExams((prev) => [normalizedSaved || savedExam, ...prev]);
+          refresh();
           console.log("✅ Exam created successfully!");
         }
 
@@ -182,6 +317,7 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
     try {
       await ExamService.deleteExam(exam.id);
       setExams((prev) => prev.filter((e) => e.id !== exam.id));
+      refresh();
       console.log("✅ Exam deleted!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete exam");
@@ -275,6 +411,7 @@ const handleEditExam = useCallback((exam: Exam) => {
         );
 
         setShowApprovalModal(false);
+        refresh();
         setExamForApproval(null);
         console.log("✅ Exam approved!");
       } catch (err) {
@@ -297,6 +434,7 @@ const handleEditExam = useCallback((exam: Exam) => {
         );
 
         setShowApprovalModal(false);
+        refresh();
         setExamForApproval(null);
         console.log("✅ Exam rejected!");
       } catch (err) {
@@ -342,6 +480,7 @@ const handleEditExam = useCallback((exam: Exam) => {
     const colors: Record<string, string> = {
       approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
       pending: "bg-amber-100 text-amber-700 border-amber-200",
+      pending_approval: "bg-amber-100 text-amber-700 border-amber-200",
       draft: "bg-slate-100 text-slate-700 border-slate-200",
       rejected: "bg-rose-100 text-rose-700 border-rose-200"
     };
@@ -350,13 +489,16 @@ const handleEditExam = useCallback((exam: Exam) => {
 
   const getStatusIcon = (status: any) => {
     if (statusCode(status) === 'approved') return <CheckCircle className="w-3 h-3" />;
-    if (statusCode(status) === 'pending') return <Calendar className="w-3 h-3" />;
+    if (['pending', 'pending_approval'].includes(statusCode(status))) return <Calendar className="w-3 h-3" />;
     return <FileText className="w-3 h-3" />;
   };
 
-  const approvedCount = exams.filter(e => statusCode(e.status) === 'approved').length;
-  const pendingCount = exams.filter(e => statusCode(e.status) === 'pending').length;
-  const draftCount = exams.filter(e => statusCode(e.status) === 'draft').length;
+  // Counted on the server across every page, for the current filters.
+  const approvedCount = statusCounts.by_status.approved ?? 0;
+  const pendingCount = statusCounts.by_status.pending_approval ?? 0;
+  const draftCount = statusCounts.by_status.draft ?? 0;
+  const firstShown = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastShown = Math.min(page * PAGE_SIZE, totalCount);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -431,7 +573,7 @@ const handleEditExam = useCallback((exam: Exam) => {
 
         {/* Search and Filter Bar */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-col 2xl:flex-row gap-4">
             {/* Search */}
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -455,10 +597,10 @@ const handleEditExam = useCallback((exam: Exam) => {
             </button>
 
             {/* Filters (Desktop) */}
-            <div className="hidden lg:flex gap-3">
+            <div className="hidden lg:flex flex-wrap gap-3">
               <select
                 value={localExamType}
-                onChange={(e) => setLocalExamType(e.target.value)}
+                onChange={(e) => onFilter(setLocalExamType)(e.target.value)}
                 className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all min-w-[140px]"
               >
                 <option value="">All Types</option>
@@ -471,7 +613,7 @@ const handleEditExam = useCallback((exam: Exam) => {
 
               <select
                 value={localStatus}
-                onChange={(e) => setLocalStatus(e.target.value)}
+                onChange={(e) => onFilter(setLocalStatus)(e.target.value)}
                 className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all min-w-[140px]"
               >
                 <option value="">All Status</option>
@@ -482,21 +624,12 @@ const handleEditExam = useCallback((exam: Exam) => {
                 ))}
               </select>
 
-              <input
-                type="number"
-                placeholder="Grade"
-                value={localGrade || ""}
-                onChange={(e) => setLocalGrade(e.target.value ? parseInt(e.target.value) : 0)}
-                className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all w-[100px]"
-              />
-
-              <input
-                type="number"
-                placeholder="Subject"
-                value={localSubject || ""}
-                onChange={(e) => setLocalSubject(e.target.value ? parseInt(e.target.value) : 0)}
-                className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all w-[100px]"
-              />
+              <OptionSelect label="All Classes" value={localGrade} options={gradeOptions}
+                onChange={onFilter(setLocalGrade)} className="min-w-[130px]" />
+              <OptionSelect label="All Subjects" value={localSubject} options={subjectOptions}
+                onChange={onFilter(setLocalSubject)} className="min-w-[140px] max-w-[200px]" />
+              <OptionSelect label="All Terms" value={localTerm} options={termOptions}
+                onChange={onFilter(setLocalTerm)} className="min-w-[120px]" />
             </div>
           </div>
 
@@ -505,7 +638,7 @@ const handleEditExam = useCallback((exam: Exam) => {
             <div className="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-200">
               <select
                 value={localExamType}
-                onChange={(e) => setLocalExamType(e.target.value)}
+                onChange={(e) => onFilter(setLocalExamType)(e.target.value)}
                 className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">All Types</option>
@@ -518,7 +651,7 @@ const handleEditExam = useCallback((exam: Exam) => {
 
               <select
                 value={localStatus}
-                onChange={(e) => setLocalStatus(e.target.value)}
+                onChange={(e) => onFilter(setLocalStatus)(e.target.value)}
                 className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">All Status</option>
@@ -529,21 +662,12 @@ const handleEditExam = useCallback((exam: Exam) => {
                 ))}
               </select>
 
-              <input
-                type="number"
-                placeholder="Grade Level"
-                value={localGrade || ""}
-                onChange={(e) => setLocalGrade(e.target.value ? parseInt(e.target.value) : 0)}
-                className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-
-              <input
-                type="number"
-                placeholder="Subject ID"
-                value={localSubject || ""}
-                onChange={(e) => setLocalSubject(e.target.value ? parseInt(e.target.value) : 0)}
-                className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <OptionSelect label="All Classes" value={localGrade} options={gradeOptions}
+                onChange={onFilter(setLocalGrade)} />
+              <OptionSelect label="All Subjects" value={localSubject} options={subjectOptions}
+                onChange={onFilter(setLocalSubject)} />
+              <OptionSelect label="All Terms" value={localTerm} options={termOptions}
+                onChange={onFilter(setLocalTerm)} />
             </div>
           )}
         </div>
@@ -554,7 +678,7 @@ const handleEditExam = useCallback((exam: Exam) => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-600 font-medium">Total Exams</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{exams.length}</p>
+                <p className="text-3xl font-bold text-slate-900 mt-1">{statusCounts.total || totalCount}</p>
               </div>
               <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
                 <FileText className="w-6 h-6 text-blue-600" />
@@ -778,6 +902,20 @@ const handleEditExam = useCallback((exam: Exam) => {
               </table>
             </div>
           </div>
+        )}
+
+        {!loading && totalCount > 0 && (
+          <Pager
+            page={page}
+            totalPages={totalPages}
+            first={firstShown}
+            last={lastShown}
+            total={totalCount}
+            onPage={(next) => {
+              setPage(next);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
         )}
 
         {/* Empty State */}
