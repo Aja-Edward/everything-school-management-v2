@@ -10,7 +10,7 @@ from .views import (
     ResendVerificationView,
     CheckVerificationStatusView,
     create_admin,
-    delete_admin,
+    admin_detail,
     list_admins,
     user_profile,
     logout_view,
@@ -68,7 +68,7 @@ urlpatterns = [
     # Admin management
     path("admins/", create_admin, name="create-admin"),
     path("admins/list/", list_admins, name="list-admins"),
-    path("admins/<int:user_id>/", delete_admin, name="delete-admin"),
+    path("admins/<int:user_id>/", admin_detail, name="delete-admin"),
     path("users/<int:user_id>/activate/", activate_user, name="activate_user"),
     # Social
     path("google/login/", GoogleLogin.as_view(), name="google_login"),

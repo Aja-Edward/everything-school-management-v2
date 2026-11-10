@@ -9,6 +9,10 @@ export const ADMIN_ROLE_OPTIONS = [
   { value: 'secondary_admin', label: 'Secondary Admin', hint: 'JSS and SSS' },
 ];
 
+// The titles the school's owner may go by. Until they pick one, others see
+// "Proprietor/Proprietress" in place of their name.
+export const OWNER_TITLE_OPTIONS = ['Proprietor', 'Proprietress'];
+
 // "primary_admin" → "Primary Admin". The owner is the one superadmin a
 // school has, made when it registered.
 export const adminRoleLabel = (role: string) =>

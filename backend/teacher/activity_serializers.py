@@ -70,9 +70,9 @@ class StaffActivityLogSerializer(serializers.ModelSerializer):
         return obj.teacher.user.get_full_name()
 
     def get_reviewed_by_name(self, obj):
-        if obj.reviewed_by:
-            return obj.reviewed_by.get_full_name()
-        return None
+        from common.admin_identity import public_name
+
+        return public_name(obj.reviewed_by)
 
     def get_duration_minutes(self, obj):
         if obj.start_time and obj.end_time:

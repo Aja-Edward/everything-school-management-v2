@@ -60,7 +60,8 @@ class MessageTest(MessagingTestCase):
         self.assertIsNotNone(message.sent_at)
         bell = Notification.objects.get(recipient=s.maths_teacher.user)
         self.assertEqual(bell.kind, NotificationKind.MESSAGE)
-        self.assertEqual(bell.title, "Message from Admin Test: Staff meeting")
+        # An admin is named by title, not name (common.admin_identity).
+        self.assertEqual(bell.title, "Message from School Admin: Staff meeting")
         self.assertEqual(bell.link, "/teacher/messages")
 
         # It is in the teacher's inbox and in the admin's Sent, not Drafts.

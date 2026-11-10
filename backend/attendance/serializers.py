@@ -292,9 +292,10 @@ class StudentTagSerializer(serializers.ModelSerializer):
         return obj.get_status_display()
 
     def _user_name(self, user):
-        if not user:
-            return None
-        return f"{user.first_name} {user.last_name}".strip() or user.username
+        # An admin by title, not name (common.admin_identity).
+        from common.admin_identity import public_name
+
+        return public_name(user)
 
     def get_issued_by_name(self, obj):
         return self._user_name(obj.issued_by if obj.issued_by_id else None)

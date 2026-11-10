@@ -129,6 +129,12 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         help_text="School section (Nursery/Primary/Junior Secondary/Senior Secondary)",
     )
 
+    # The title a school admin goes by, e.g. "Proprietress", "Vice Principal"
+    # or "School Admin 2". The school's owner gives it on the admin list. What
+    # others see in their place on messages, announcements and reviews (see
+    # common.admin_identity); blank means the default for their role.
+    admin_title = models.CharField(max_length=100, blank=True, default="")
+
     reports_to = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,

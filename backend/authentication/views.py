@@ -712,6 +712,8 @@ def list_admins(request):
     Platform admins (is_superuser, per IsPlatformAdmin) are the sole
     exception and still see every admin across the platform.
     """
+    from common.admin_identity import admin_title
+
     try:
         admin_roles = [
             "superadmin",
@@ -757,6 +759,8 @@ def list_admins(request):
                         admin, "full_name", f"{admin.first_name} {admin.last_name}"
                     ),
                     "role": getattr(admin, "role", "user"),
+                    "admin_title": admin_title(admin),
+                    "is_owner": admin.role == "superadmin",
                     "section": getattr(admin, "section", None),
                     "is_active": admin.is_active,
                     "is_staff": admin.is_staff,
@@ -1429,11 +1433,20 @@ def create_admin(request):
     if tenant is None:
         return Response({"detail": "Unable to determine your school."}, 400)
 
+    from common.admin_identity import next_numbered_title
+
+    title = (request.data.get("admin_title") or "").strip()
+    if len(title) > 100:
+        return Response({"detail": "A title can be at most 100 characters."}, 400)
+
     if User.objects.filter(email=email).exists():
         return Response({"detail": "Email already in use"}, 400)
     # Callers that ARE platform superusers create via Django shell,
     # not via this endpoint.
     with transaction.atomic():
+        # Known to others by title, not name; "School Admin 2" until the
+        # owner gives a better one.
+        title = title or next_numbered_title(tenant, role)
         username = generate_unique_username("admin")
         temp_password = generate_temp_password()
         admin = User.objects.create_user(
@@ -1448,6 +1461,7 @@ def create_admin(request):
             **admin_account_flags(role),
             is_superuser=False,  # NEVER True for school admins
             is_active=True,
+            admin_title=title,
             # The school the request is for, which authentication has
             # already confirmed is the caller's own.
             tenant=tenant,
@@ -1458,13 +1472,103 @@ def create_admin(request):
                 "username": username,
                 "password": temp_password,
                 "email": email,
+                "admin_title": title,
             },
             status=201,
         )
 
 
-@api_view(["DELETE"])
+@api_view(["PATCH", "DELETE"])
 @permission_classes([IsAdminUser])
+def admin_detail(request, user_id):
+    """PATCH sets an admin's title and section (update_admin); DELETE removes them."""
+    if request.method == "PATCH":
+        return update_admin(request, user_id)
+    return delete_admin(request, user_id)
+
+
+def update_admin(request, user_id):
+    """
+    Give one of the school's admins a title, a section, or both.
+
+    Only the school's owner (role superadmin, made at registration) does
+    this; Edward's ask was that the owner assigns the other admins. Body:
+
+      admin_title  what others see in place of the admin's name, e.g.
+                   "Vice Principal" (see common.admin_identity)
+      role         "admin" for the whole school, or a section admin role
+                   (nursery_admin, primary_admin, ...), which limits what they
+                   see and act on to that section through common.admin_access
+
+    The owner may retitle themself (Proprietor or Proprietress) but nobody's
+    role becomes or stops being superadmin here.
+    """
+    from common.admin_access import SECTION_ADMIN_LEVELS, admin_account_flags
+    from common.admin_identity import (
+        ADMIN_ROLES, ROLE_TITLES, admin_title, next_numbered_title,
+    )
+
+    actor = request.user
+    if not (actor.is_platform_staff or (actor.role == "superadmin" and actor.tenant_id)):
+        return Response(
+            {"error": "Only the school's owner can assign admin roles."}, status=403
+        )
+    target, refusal = _account_in_callers_school(request, user_id)
+    if refusal is not None:
+        return refusal
+    if target.role not in ADMIN_ROLES:
+        return Response({"error": "That account is not an admin."}, status=400)
+
+    fields = []
+    role = request.data.get("role")
+    if role is not None and role != target.role:
+        if target.role == "superadmin":
+            return Response(
+                {"error": "The owner's access can't be changed; it covers the whole school."},
+                status=400,
+            )
+        if role not in {"admin", *SECTION_ADMIN_LEVELS}:
+            return Response(
+                {"error": f"'{role}' is not a role an admin can be given."}, status=400
+            )
+        old_default = ROLE_TITLES.get(target.role, "")
+        # A numbered title from the old role ("Primary Admin 2") would now
+        # be wrong; one the owner chose stays.
+        if "admin_title" not in request.data and (
+            not target.admin_title or target.admin_title.startswith(old_default)
+        ):
+            target.admin_title = next_numbered_title(target.tenant, role)
+            fields.append("admin_title")
+        target.role = role
+        flags = admin_account_flags(role)
+        target.is_staff = flags["is_staff"]
+        target.section = flags["section"]
+        fields += ["role", "is_staff", "section"]
+
+    if "admin_title" in request.data:
+        title = (request.data.get("admin_title") or "").strip()
+        if len(title) > 100:
+            return Response({"error": "A title can be at most 100 characters."}, status=400)
+        target.admin_title = title
+        fields.append("admin_title")
+
+    if fields:
+        # save() without update_fields: CustomUser.save re-syncs the role's
+        # group, which the new role needs.
+        target.save()
+
+    return Response(
+        {
+            "id": target.id,
+            "role": target.role,
+            "section": target.section,
+            "is_staff": target.is_staff,
+            "admin_title": admin_title(target),
+            "is_owner": target.role == "superadmin",
+        }
+    )
+
+
 def delete_admin(request, user_id):
     """
     Delete one of the school's admin accounts.

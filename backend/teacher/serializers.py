@@ -63,9 +63,7 @@ class AssignmentRequestSerializer(serializers.ModelSerializer):
     requested_subjects_names = serializers.SerializerMethodField()
     requested_grade_levels_names = serializers.SerializerMethodField()
     requested_sections_names = serializers.SerializerMethodField()
-    reviewed_by_name = serializers.CharField(
-        source="reviewed_by.full_name", read_only=True
-    )
+    reviewed_by_name = serializers.SerializerMethodField()
     days_since_submitted = serializers.SerializerMethodField()
 
     class Meta:
@@ -111,6 +109,12 @@ class AssignmentRequestSerializer(serializers.ModelSerializer):
 
     def get_requested_sections_names(self, obj):
         return [section.name for section in obj.requested_sections.all()]
+
+    def get_reviewed_by_name(self, obj):
+        # The admin who decided it, by title (common.admin_identity).
+        from common.admin_identity import public_name
+
+        return public_name(obj.reviewed_by)
 
     def get_days_since_submitted(self, obj):
         if obj.submitted_at:

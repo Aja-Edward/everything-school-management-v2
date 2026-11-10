@@ -102,9 +102,9 @@ class PerformanceAppraisalSerializer(serializers.ModelSerializer):
             return ""
 
     def get_appraiser_name(self, obj):
-        if obj.appraiser:
-            return obj.appraiser.get_full_name()
-        return "—"
+        from common.admin_identity import public_name
+
+        return public_name(obj.appraiser, default="—")
 
 
 class PerformanceAppraisalCreateSerializer(serializers.ModelSerializer):
@@ -175,9 +175,9 @@ class StaffNoteSerializer(serializers.ModelSerializer):
         return obj.teacher.user.get_full_name()
 
     def get_issued_by_name(self, obj):
-        if obj.issued_by:
-            return obj.issued_by.get_full_name()
-        return "—"
+        from common.admin_identity import public_name
+
+        return public_name(obj.issued_by, default="—")
 
 
 class StaffNoteCreateSerializer(serializers.ModelSerializer):

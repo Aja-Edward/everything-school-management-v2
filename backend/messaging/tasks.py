@@ -28,7 +28,10 @@ def email_messages(message_ids, bulk_id=None):
             message.status, message.delivery_status = "failed", "The recipient has no email address"
             message.save(update_fields=["status", "delivery_status"])
             continue
-        sender = message.sender.get_full_name() or message.sender.username
+        # Signed with an admin's title rather than their name.
+        from common.admin_identity import public_name
+
+        sender = public_name(message.sender)
         signature = "\n".join(filter(None, [sender, message.tenant.name if message.tenant_id else ""]))
         result = channels.send(
             channel="email", tenant=message.tenant, destination=destination,

@@ -81,7 +81,10 @@ def deliver(messages, tenant, bulk=None):
     Message.objects.filter(pk__in=[m.pk for m in messages]).update(status="sent", sent_at=now)
 
     sender = messages[0].sender
-    sender_name = sender.get_full_name() or sender.username
+    # An admin is known by title, not name (common.admin_identity).
+    from common.admin_identity import public_name
+
+    sender_name = public_name(sender)
     # A bulk send is one subject and text to many people: one insert for all
     # of their bells rather than one each.
     by_text = {}

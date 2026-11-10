@@ -593,9 +593,12 @@ class SectionFilterMixin:
 
             # SECTION MODELS
             elif model_name == "Section":
+                # This branch used to fall through without returning, so a
+                # section admin's section list came back None and failed.
                 filtered = queryset.filter(
                     class_grade__education_level__level_type__in=allowed_education_levels
                 )
+                return filtered
 
             # EXAM/RESULT MODELS
             elif model_name in ["ExamSession", "Exam"]:

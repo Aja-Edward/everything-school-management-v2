@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from common.admin_identity import AuthorNameField
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist, ValidationError as DjangoValidationError
 
@@ -955,7 +957,7 @@ class BulkExamUpdateSerializer(serializers.Serializer):
 class QuestionBankListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for question bank lists"""
 
-    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    created_by_name = AuthorNameField(source="created_by")
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
     question_type_display = serializers.CharField(source="get_question_type_display", read_only=True)
@@ -1127,7 +1129,7 @@ class QuestionBankCreateUpdateSerializer(SchoolScopedRelationsMixin, serializers
 class ExamTemplateListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for template lists"""
 
-    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    created_by_name = AuthorNameField(source="created_by")
     grade_level_name = serializers.CharField(source="grade_level.name", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     section_count = serializers.SerializerMethodField()
