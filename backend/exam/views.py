@@ -232,6 +232,25 @@ class SectionEducationLevelMixin:
         )
         return []
 
+    # The path from this viewset's model to its EducationLevel, or None for a
+    # model that belongs to no level (a schedule is a term's window for the
+    # whole school). Each viewset below sets its own.
+    education_level_path = "grade_level__education_level"
+
+    def _filter_by_levels(self, queryset, education_levels):
+        """
+        `queryset` limited to `education_levels`, which are level codes
+        ("JUNIOR_SECONDARY"). These used to be compared with the education
+        level foreign key itself, so Django read "JUNIOR_SECONDARY" as an id
+        and every section admin's exam screens failed with a 500.
+        """
+        from common.education_levels import expand_tokens
+
+        if self.education_level_path is None:
+            return queryset
+        lookup = f"{self.education_level_path}__level_type__in"
+        return queryset.filter(**{lookup: expand_tokens(education_levels)}).distinct()
+
 
 # ==============================================================================
 # REFERENCE DATA VIEWSETS (ExamType, DifficultyLevel, ExamStatus)
@@ -383,9 +402,7 @@ class ExamViewSet(
             if not education_levels:
                 logger.warning(f"❌ No education levels for {user.username}")
                 return queryset.none()
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
+            filtered = self._filter_by_levels(queryset, education_levels)
             logger.info(f"✅ Filtered Exams: {filtered.count()} of {queryset.count()}")
             return filtered
 
@@ -412,9 +429,7 @@ class ExamViewSet(
             if not education_levels:
                 logger.warning(f"❌ No education level access for {user.username}")
                 return queryset.none()
-            filtered = queryset.filter(
-                grade_level__education_level__in=education_levels
-            )
+            filtered = self._filter_by_levels(queryset, education_levels)
             logger.info(f"✅ Student/Parent can see {filtered.count()} exams")
             return filtered
 
@@ -1360,6 +1375,7 @@ class ExamScheduleViewSet(
     ViewSet for exam schedules.
     """
 
+    education_level_path = None
     queryset = ExamSchedule.objects.all()
     serializer_class = ExamScheduleSerializer
     ordering = ["-created_at"]
@@ -1394,7 +1410,7 @@ class ExamScheduleViewSet(
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         if role == "teacher" or hasattr(user, "teacher"):
             try:
@@ -1414,7 +1430,7 @@ class ExamScheduleViewSet(
             education_levels = list(set(education_levels))
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         return queryset.none()
 
@@ -1470,6 +1486,7 @@ class ExamRegistrationViewSet(
     ViewSet for exam registrations with section filtering.
     """
 
+    education_level_path = "exam__grade_level__education_level"
     queryset = ExamRegistration.objects.select_related("exam", "student")
     serializer_class = ExamRegistrationSerializer
     ordering = ["-registration_date"]
@@ -1504,7 +1521,7 @@ class ExamRegistrationViewSet(
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         if role == "teacher" or hasattr(user, "teacher"):
             try:
@@ -1524,7 +1541,7 @@ class ExamRegistrationViewSet(
             education_levels = list(set(education_levels))
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         return queryset.none()
 
@@ -1650,6 +1667,8 @@ class ResultViewSet(
     ViewSet for exam results with section filtering.
     """
 
+    # StudentResult has no exam; it reaches a level through the pupil.
+    education_level_path = "student__student_class__education_level"
     queryset = StudentResult.objects.select_related("exam", "student", "subject")
     serializer_class = ResultSerializer
     ordering = ["-created_at"]
@@ -1684,7 +1703,7 @@ class ResultViewSet(
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         if role == "teacher" or hasattr(user, "teacher"):
             try:
@@ -1704,7 +1723,7 @@ class ResultViewSet(
             education_levels = list(set(education_levels))
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         return queryset.none()
 
@@ -1736,6 +1755,7 @@ class ExamStatisticsViewSet(
     ViewSet for exam statistics (read-only) with section filtering.
     """
 
+    education_level_path = "exam__grade_level__education_level"
     queryset = ExamStatistics.objects.select_related("exam")
     serializer_class = ExamStatisticsSerializer
     ordering = ["-calculated_at"]
@@ -1770,7 +1790,7 @@ class ExamStatisticsViewSet(
             education_levels = self._get_section_education_levels(user)
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         if role == "teacher" or hasattr(user, "teacher"):
             try:
@@ -1790,7 +1810,7 @@ class ExamStatisticsViewSet(
             education_levels = list(set(education_levels))
             if not education_levels:
                 return queryset.none()
-            return queryset.filter(grade_level__education_level__in=education_levels)
+            return self._filter_by_levels(queryset, education_levels)
 
         return queryset.none()
 
