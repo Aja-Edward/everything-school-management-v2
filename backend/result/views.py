@@ -10,11 +10,14 @@ from decimal import Decimal
 import cloudinary.uploader
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Avg, Count, Max, Min, Prefetch, Q
+from django.db.models import (
+    Avg, Count, DecimalField, ExpressionWrapper, Max, Min, Prefetch, Q, Sum, Value,
+)
+from django.db.models.functions import NullIf
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -2019,8 +2022,65 @@ class SeniorSecondaryResultViewSet(
 # ── Senior Secondary Term Report ──────────────────────────────────────────────
 
 
+class TermReportSummaryListMixin:
+    """
+    ``?summary=1`` on a term-report list: each report without its subject
+    results, plus ``subject_count`` and ``list_average`` worked out in SQL.
+
+    The admin Results page lists 20 reports a level and reloads them after
+    every approve or publish. In full, each report carries every subject
+    result with its student, subject, session, grading and component scores
+    -- about 600 KB read from Postgres (Supabase egress) per level per
+    reload. A row in that list shows only the report's average and number
+    of subjects; opening a report fetches it in full.
+    """
+
+    SUMMARY_PARAM = "summary"
+
+    def _summary_list(self):
+        return (getattr(self, "action", None) == "list"
+                and self.request.query_params.get(self.SUMMARY_PARAM) in ("1", "true"))
+
+    def _list_average(self):
+        """The mean of the report's subject totals, all statuses (drafts included)."""
+        return Avg("subject_results__total_score")
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if not self._summary_list():
+            return queryset
+        return (
+            queryset.prefetch_related(None)
+            .prefetch_related(_active_enrollments_prefetch(), "trait_ratings")
+            .annotate(
+                subject_count=Count("subject_results", distinct=True),
+                list_average=self._list_average(),
+            )
+        )
+
+    def get_serializer(self, *args, **kwargs):
+        serializer = super().get_serializer(*args, **kwargs)
+        if self._summary_list():
+            report = getattr(serializer, "child", serializer)
+            report.fields.pop("subject_results", None)
+            report.fields["subject_count"] = serializers.IntegerField(read_only=True)
+            report.fields["list_average"] = serializers.DecimalField(
+                max_digits=7, decimal_places=2, read_only=True, allow_null=True)
+        return serializer
+
+
+class NurseryTermReportSummaryListMixin(TermReportSummaryListMixin):
+    def _list_average(self):
+        """Marks obtained over marks obtainable, as a percentage."""
+        return ExpressionWrapper(
+            Sum("subject_results__mark_obtained") * Value(Decimal("100"))
+            / NullIf(Sum("subject_results__max_marks_obtainable"), Value(Decimal("0"))),
+            output_field=DecimalField(max_digits=7, decimal_places=2),
+        )
+
+
 class SeniorSecondaryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
@@ -2475,7 +2535,7 @@ class JuniorSecondaryResultViewSet(
 
 
 class JuniorSecondaryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = JuniorSecondaryTermReport.objects.all().order_by("-created_at")
@@ -2897,7 +2957,7 @@ class PrimaryResultViewSet(
 
 
 class PrimaryTermReportViewSet(
-    TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = PrimaryTermReport.objects.all().order_by("-created_at")
@@ -3379,7 +3439,7 @@ class NurseryResultViewSet(
 
 
 class NurseryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    NurseryTermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = NurseryTermReport.objects.all().order_by("-created_at")
