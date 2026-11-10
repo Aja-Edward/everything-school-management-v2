@@ -64,6 +64,13 @@ const SR_PAGE_SIZE = 25;
 
 type EnrichedReport = AnyTermReport & { education_level: EducationLevelType };
 
+/**
+ * What a row of the list carries in place of subject_results: the list asks
+ * for summaries (summary=1), since each report's subject results made a page
+ * about 600 KB read from the database, reloaded after every approve/publish.
+ */
+type ReportSummary = { subject_count?: number; list_average?: string | number | null };
+
 type TermTab = 'FIRST' | 'SECOND' | 'THIRD' | 'SESSION';
 
 interface TrFilters {
@@ -95,6 +102,12 @@ function formatDate(iso: string): string {
 function getAvgScore(report: AnyTermReport): number {
   const stored = ResultService.getAverageScore(report);
   if (stored > 0) return stored;
+
+  const summaryAverage = (report as ReportSummary).list_average;
+  if (summaryAverage !== undefined && summaryAverage !== null) {
+    const n = parseFloat(String(summaryAverage));
+    return isNaN(n) ? 0 : parseFloat(n.toFixed(2));
+  }
 
   const srs: any[] = (report.subject_results ?? []) as any[];
   if (srs.length === 0) return 0;
@@ -132,7 +145,7 @@ function getTotalStudents(report: AnyTermReport): number {
 
 function getSubjectCount(report: AnyTermReport): number {
   if ('total_subjects' in report) return (report as NurseryTermReport).total_subjects;
-  return report.subject_results?.length ?? 0;
+  return (report as ReportSummary).subject_count ?? report.subject_results?.length ?? 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -484,6 +497,16 @@ const EnhancedResultsManagement: React.FC = () => {
 
   // Modals
   const [detailReport, setDetailReport] = useState<EnrichedReport | null>(null);
+
+  /** The list holds summaries; fetch the report with its subject results before showing them. */
+  const openReport = async (report: EnrichedReport, then: (full: EnrichedReport) => void) => {
+    try {
+      const full = await ResultService.getTermReport(report.education_level, String(report.id));
+      then({ ...full, education_level: report.education_level } as EnrichedReport);
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not open this report');
+    }
+  };
   const [deleteTarget, setDeleteTarget] = useState<EnrichedReport | null>(null);
   const [showAddForm, setShowAddForm]   = useState(false);
   const [editTarget, setEditTarget]     = useState<{ report: EnrichedReport; subjectResult: any } | null>(null);
@@ -542,10 +565,10 @@ const EnhancedResultsManagement: React.FC = () => {
 
     try {
       const [mainRes, draftRes, approvedRes, publishedRes] = await Promise.all([
-        ResultService.getAllTermReports({ ...baseParams, page: trCurrentPage, page_size: trPageSize } as TermReportParams & { level?: EducationLevelType }),
-        ResultService.getAllTermReports({ ...baseParams, status: 'DRAFT',     page: 1, page_size: 1 } as any),
-        ResultService.getAllTermReports({ ...baseParams, status: 'APPROVED',  page: 1, page_size: 1 } as any),
-        ResultService.getAllTermReports({ ...baseParams, status: 'PUBLISHED', page: 1, page_size: 1 } as any),
+        ResultService.getAllTermReports({ ...baseParams, summary: 1, page: trCurrentPage, page_size: trPageSize } as TermReportParams & { level?: EducationLevelType }),
+        ResultService.getAllTermReports({ ...baseParams, summary: 1, status: 'DRAFT',     page: 1, page_size: 1 } as any),
+        ResultService.getAllTermReports({ ...baseParams, summary: 1, status: 'APPROVED',  page: 1, page_size: 1 } as any),
+        ResultService.getAllTermReports({ ...baseParams, summary: 1, status: 'PUBLISHED', page: 1, page_size: 1 } as any),
       ]);
 
       setReports(mainRes.results as EnrichedReport[]);
@@ -620,6 +643,14 @@ const EnhancedResultsManagement: React.FC = () => {
 
   // ── Recalculate positions helper ──────────────────────────────────────────
 
+  /**
+   * The reports that were drafts before a publish. Re-ranking reads every
+   * result in the level and session from the database, so it runs only when
+   * a publish changed what is ranked.
+   */
+  const onlyDrafts = (affected: EnrichedReport[]) =>
+    affected.filter((r) => r.status === 'DRAFT');
+
   const recalcPositions = async (affected: EnrichedReport[]) => {
     const seen   = new Set<string>();
     const combos: { level: EducationLevelType; sid: string }[] = [];
@@ -663,7 +694,10 @@ const EnhancedResultsManagement: React.FC = () => {
       setReports((prev) => prev.map((r) => r.id === report.id ? { ...r, status: 'PUBLISHED' as ResultStatus } : r));
       if (detailReport?.id === report.id)
         setDetailReport((p) => p ? { ...p, status: 'PUBLISHED' as ResultStatus } : null);
-      await recalcPositions([report]);
+      // Positions count approved and published results alike, so publishing
+      // an approved report changes nothing to re-rank. A draft published
+      // straight away joins the ranking, so that one still needs it.
+      await recalcPositions(onlyDrafts([report]));
       await loadTermReports(true);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to publish');
@@ -763,7 +797,7 @@ const EnhancedResultsManagement: React.FC = () => {
       setTrSelectedIds([]);
       toast.success(`${total} report(s) published`);
       const affected = reports.filter((r) => trSelectedIds.includes(r.id));
-      await recalcPositions(affected);
+      await recalcPositions(onlyDrafts(affected));
       await loadTermReports(true);
     } catch (err: any) {
       toast.error(err?.message || 'Bulk publish failed');
@@ -1481,18 +1515,18 @@ const EnhancedResultsManagement: React.FC = () => {
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-1">
                                 <button
-                                  onClick={() => setDetailReport(report)}
+                                  onClick={() => openReport(report, (full) => setDetailReport(full))}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                                   title="View"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
                                 <button
-                                  onClick={() => {
-                                    const sr = report.subject_results?.[0];
-                                    if (sr) setEditTarget({ report, subjectResult: sr });
+                                  onClick={() => openReport(report, (full) => {
+                                    const sr = full.subject_results?.[0];
+                                    if (sr) setEditTarget({ report: full, subjectResult: sr });
                                     else toast.info('No subject results to edit');
-                                  }}
+                                  })}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                                   title="Edit"
                                 >

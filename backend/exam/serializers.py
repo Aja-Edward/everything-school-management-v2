@@ -350,19 +350,13 @@ class ExamListSerializer(serializers.ModelSerializer):
             "is_ongoing",
             "registered_students_count",
             "pass_percentage",
-            "objective_questions",
-            "theory_questions",
-            "practical_questions",
-            "custom_sections",
-            "objective_instructions",
-            "theory_instructions",
-            "objective_passage",
-            "theory_passage",
-            "practical_instructions",
-            "section_audio",
-            "plain_page",
+            # The questions, passages, plain page, audio and print settings
+            # are left out: they are most of an exam's size (drawings are
+            # stored inline in the question HTML), and a list only shows a
+            # row per exam. Editing and printing fetch the one exam in full.
+            # ExamViewSet defers the same columns (LIST_DEFERRED_FIELDS) so
+            # they don't leave the database either.
             "print_plain_page",
-            "print_settings",
             "approved_by_name",
             "approved_at",
             "approval_notes",
@@ -370,6 +364,8 @@ class ExamListSerializer(serializers.ModelSerializer):
             "is_pending_approval",
             "is_approved",
             "is_rejected",
+            "created_at",
+            "updated_at",
         ]
 
     def get_pass_percentage(self, obj):

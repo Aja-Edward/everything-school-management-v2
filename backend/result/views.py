@@ -10,11 +10,14 @@ from decimal import Decimal
 import cloudinary.uploader
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Avg, Count, Max, Min, Prefetch, Q
+from django.db.models import (
+    Avg, Count, DecimalField, ExpressionWrapper, Max, Min, Prefetch, Q, Sum, Value,
+)
+from django.db.models.functions import NullIf
 from django.http import HttpResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -1189,7 +1192,7 @@ class BaseResultViewSetMixin:
                 teacher=teacher, is_active=True)
             .exclude(subject__isnull=True)
             .values_list("classroom_id", "subject_id")
-            .distinct()
+            .order_by().distinct()
         )
         for classroom_id, subject_id in pairs:
             # subject_id is on the result row itself, so each OR branch binds
@@ -2019,8 +2022,65 @@ class SeniorSecondaryResultViewSet(
 # ── Senior Secondary Term Report ──────────────────────────────────────────────
 
 
+class TermReportSummaryListMixin:
+    """
+    ``?summary=1`` on a term-report list: each report without its subject
+    results, plus ``subject_count`` and ``list_average`` worked out in SQL.
+
+    The admin Results page lists 20 reports a level and reloads them after
+    every approve or publish. In full, each report carries every subject
+    result with its student, subject, session, grading and component scores
+    -- about 600 KB read from Postgres (Supabase egress) per level per
+    reload. A row in that list shows only the report's average and number
+    of subjects; opening a report fetches it in full.
+    """
+
+    SUMMARY_PARAM = "summary"
+
+    def _summary_list(self):
+        return (getattr(self, "action", None) == "list"
+                and self.request.query_params.get(self.SUMMARY_PARAM) in ("1", "true"))
+
+    def _list_average(self):
+        """The mean of the report's subject totals, all statuses (drafts included)."""
+        return Avg("subject_results__total_score")
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if not self._summary_list():
+            return queryset
+        return (
+            queryset.prefetch_related(None)
+            .prefetch_related(_active_enrollments_prefetch(), "trait_ratings")
+            .annotate(
+                subject_count=Count("subject_results", distinct=True),
+                list_average=self._list_average(),
+            )
+        )
+
+    def get_serializer(self, *args, **kwargs):
+        serializer = super().get_serializer(*args, **kwargs)
+        if self._summary_list():
+            report = getattr(serializer, "child", serializer)
+            report.fields.pop("subject_results", None)
+            report.fields["subject_count"] = serializers.IntegerField(read_only=True)
+            report.fields["list_average"] = serializers.DecimalField(
+                max_digits=7, decimal_places=2, read_only=True, allow_null=True)
+        return serializer
+
+
+class NurseryTermReportSummaryListMixin(TermReportSummaryListMixin):
+    def _list_average(self):
+        """Marks obtained over marks obtainable, as a percentage."""
+        return ExpressionWrapper(
+            Sum("subject_results__mark_obtained") * Value(Decimal("100"))
+            / NullIf(Sum("subject_results__max_marks_obtainable"), Value(Decimal("0"))),
+            output_field=DecimalField(max_digits=7, decimal_places=2),
+        )
+
+
 class SeniorSecondaryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = SeniorSecondaryTermReport.objects.all().order_by("-created_at")
@@ -2089,8 +2149,8 @@ class SeniorSecondaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
                         "stream",
                         "stream__stream_type_new",
 
@@ -2210,7 +2270,7 @@ class SeniorSecondaryTermReportViewSet(
         with transaction.atomic():
             qs = SeniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = SeniorSecondaryResult.bulk_publish(
                 SeniorSecondaryResult.objects.filter(
@@ -2246,7 +2306,7 @@ class SeniorSecondaryTermReportViewSet(
         student_classes = (
             SeniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -2262,7 +2322,7 @@ class SeniorSecondaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -2475,7 +2535,7 @@ class JuniorSecondaryResultViewSet(
 
 
 class JuniorSecondaryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = JuniorSecondaryTermReport.objects.all().order_by("-created_at")
@@ -2540,8 +2600,8 @@ class JuniorSecondaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
 
                     ).prefetch_related(
                         "grading_system__grades",
@@ -2653,7 +2713,7 @@ class JuniorSecondaryTermReportViewSet(
                 tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = JuniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = JuniorSecondaryResult.bulk_publish(
                 JuniorSecondaryResult.objects.filter(
@@ -2688,7 +2748,7 @@ class JuniorSecondaryTermReportViewSet(
         student_classes = (
             JuniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -2703,7 +2763,7 @@ class JuniorSecondaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -2897,7 +2957,7 @@ class PrimaryResultViewSet(
 
 
 class PrimaryTermReportViewSet(
-    TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
+    TermReportSummaryListMixin, TeacherPortalCheckMixin, AutoSectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = PrimaryTermReport.objects.all().order_by("-created_at")
@@ -2962,8 +3022,8 @@ class PrimaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
 
                     ).prefetch_related(
                         "grading_system__grades",
@@ -3072,7 +3132,7 @@ class PrimaryTermReportViewSet(
                 tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = PrimaryTermReport.bulk_publish(qs, request.user)
             result_count = PrimaryResult.bulk_publish(
                 PrimaryResult.objects.filter(
@@ -3107,7 +3167,7 @@ class PrimaryTermReportViewSet(
         student_classes = (
             PrimaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -3122,7 +3182,7 @@ class PrimaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -3379,7 +3439,7 @@ class NurseryResultViewSet(
 
 
 class NurseryTermReportViewSet(
-    TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
+    NurseryTermReportSummaryListMixin, TeacherPortalCheckMixin, SectionFilterMixin, viewsets.ModelViewSet
 ):
     pagination_class = StandardResultsPagination
     queryset = NurseryTermReport.objects.all().order_by("-created_at")
@@ -3444,7 +3504,8 @@ class NurseryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
+                        # published_by goes out as an id; joining its row only added bytes
+                        # read from Postgres. Nursery reads term_report's fields, so it stays.
                         "term_report",
 
                     ).prefetch_related(
@@ -3575,7 +3636,7 @@ class NurseryTermReportViewSet(
         with transaction.atomic():
             qs = NurseryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = NurseryTermReport.bulk_publish(qs, request.user)
             # One UPDATE for all child results — no N+1 loop.
             result_count = NurseryResult.objects.filter(
@@ -3614,7 +3675,7 @@ class NurseryTermReportViewSet(
         student_classes = (
             NurseryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -3884,7 +3945,7 @@ class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
                 ClassroomTeacherAssignment.objects.filter(teacher=teacher)
                 .exclude(subject__isnull=True)
                 .values_list("subject_id", flat=True)
-                .distinct()
+                .order_by().distinct()
             )
             if assigned_subjects.exists():
                 return queryset.filter(

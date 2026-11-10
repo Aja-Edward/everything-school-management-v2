@@ -569,6 +569,8 @@ export interface TermReportParams {
   page?: number;
   page_size?: number;
   search?: string;
+  /** 1: each report without subject_results, with subject_count and list_average. */
+  summary?: 1;
 }
 
 export interface SubjectResultParams {

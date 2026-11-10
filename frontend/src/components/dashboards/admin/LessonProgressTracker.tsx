@@ -97,7 +97,7 @@ const LessonProgressTracker: React.FC<LessonProgressTrackerProps> = ({
       } catch (err) {
         console.error('Error updating progress:', err);
       }
-    }, 5000); // Update every 5 seconds for more visible progress
+    }, 30000); // Every 30s: progress moves by the minute, and each poll reads and saves the lesson
   };
 
   // Stop progress interval

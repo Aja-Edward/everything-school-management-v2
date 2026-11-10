@@ -28,6 +28,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from common.education_levels import canonical_level_type
+from exam.models import exam_paper_fields
 
 from . import scoring
 from .engine import Refused
@@ -532,7 +533,8 @@ def auto_push(attempt, now=None):
     """
     def push():
         try:
-            fresh = CBTAttempt.objects.select_related("paper__exam", "student__user").get(pk=attempt.pk)
+            fresh = (CBTAttempt.objects.select_related("paper__exam", "student__user")
+                     .defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk))
             paper = fresh.paper
             if not paper.auto_push_results or fresh.status not in FINISHED or fresh.total_score is None:
                 return

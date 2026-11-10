@@ -99,36 +99,10 @@ const loadTeacherData = async () => {
       throw new Error('Teacher ID not found');
     }
 
-    const [assignmentsResponse, examsResponse] = await Promise.all([
-      TeacherDashboardService.getTeacherClasses(teacherId),
-      ExamService.getExamsByTeacher(teacherId)
-    ]);
-
-    const assignments = assignmentsResponse || [];
-    let examsData = examsResponse || [];
-
-    const subjectIds = Array.from(new Set(
-      (assignments || []).map((a: any) => a.subject_id).filter((id: any) => !!id)
-    ));
-
-    if (subjectIds.length > 0) {
-      try {
-        const bySubjectLists = await Promise.all(
-          subjectIds.map((sid: number) => ExamService.getExamsBySubject(sid))
-        );
-        const bySubject = bySubjectLists.flat();
-        
-        const examMap = new Map();
-        [...examsData, ...bySubject].forEach((e: any) => {
-          if (e && e.id) {
-            examMap.set(e.id, e);
-          }
-        });
-        examsData = Array.from(examMap.values());
-      } catch (e) {
-        console.warn('Fallback by subject failed:', e);
-      }
-    }
+    // A teacher's exams are exactly what by-teacher returns: the exam API
+    // limits teachers to their own exams, so also asking by-subject for each
+    // subject they teach only read the same exams again.
+    const examsData = (await ExamService.getExamsByTeacher(teacherId)) || [];
 
     const validExamsData = examsData.filter((exam: any) => {
       return exam && exam.id && exam.id > 0 && exam.title && exam.exam_type;

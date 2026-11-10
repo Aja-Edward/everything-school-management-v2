@@ -25,7 +25,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from exam.models import ExamRegistration
+from exam.models import ExamRegistration, exam_paper_fields
 from students.models import Student
 from teacher.models import Teacher
 
@@ -63,7 +63,8 @@ def invigilable_papers(user, tenant):
         allowed |= Q(exam__invigilators=teacher)
     return (CBTPaper.objects.filter(tenant=tenant).filter(allowed)
             .exclude(status=CBTPaper.Status.DRAFT)
-            .select_related("exam", "exam__subject", "exam__grade_level").distinct())
+            .select_related("exam", "exam__subject", "exam__grade_level")
+            .defer(*exam_paper_fields("exam__")).distinct())
 
 
 def _seconds(delta):
@@ -212,7 +213,8 @@ def _reason(value, required):
 
 
 def _locked(attempt):
-    return CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
+    return (CBTAttempt.objects.select_for_update().select_related("paper__exam")
+            .defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk))
 
 
 def extend_time(attempt, minutes, actor, reason="", now=None):

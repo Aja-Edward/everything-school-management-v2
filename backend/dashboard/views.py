@@ -15,7 +15,7 @@ from parent.models import ParentProfile
 from lesson.models import Lesson
 from attendance.models import Attendance
 from classroom.models import Classroom
-from exam.models import Exam
+from exam.models import Exam, exam_paper_fields
 from result.models import StudentResult
 from result.family_access import (
     academics_released,
@@ -1307,6 +1307,7 @@ def admin_dashboard_enhanced_stats(request):
                 Exam.objects.filter(
                     tenant=tenant, exam_date__gte=last_7_days, status__code="completed")
                 .select_related("subject", "grade_level", "section")
+                .defer(*exam_paper_fields())
                 .order_by("-exam_date")[:5]
             )
             for exam in recent_exams:

@@ -17,6 +17,7 @@ from utils.pagination import LargeResultsPagination, StandardResultsPagination
 import logging
 
 # Import models
+from .models import EXAM_PAPER_FIELDS
 from .models import (
     Exam,
     ExamType,
@@ -321,6 +322,26 @@ class ExamStatusViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 # ==============================================================================
 
 
+# The exam paper columns (see exam.models.EXAM_PAPER_FIELDS): left in the
+# database by every action that returns many exams.
+LIST_DEFERRED_FIELDS = EXAM_PAPER_FIELDS
+
+# ExamViewSet actions that return many exams, and so use ExamListSerializer
+# over a queryset with LIST_DEFERRED_FIELDS deferred.
+EXAM_LIST_ACTIONS = frozenset({
+    "list",
+    "by_teacher",
+    "by_subject",
+    "by_grade",
+    "by_schedule",
+    "upcoming",
+    "completed",
+    "ongoing",
+    "calendar_view",
+    "summary_list",
+})
+
+
 class ExamViewSet(
     SectionEducationLevelMixin,
     TenantFilterMixin,
@@ -360,7 +381,7 @@ class ExamViewSet(
     pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
-        if self.action == "list":
+        if self.action in EXAM_LIST_ACTIONS:
             return ExamListSerializer
         elif self.action in ["create", "update", "partial_update"]:
             return ExamCreateUpdateSerializer
@@ -368,6 +389,8 @@ class ExamViewSet(
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.action in EXAM_LIST_ACTIONS:
+            queryset = queryset.defer(*LIST_DEFERRED_FIELDS)
         user = self.request.user
 
         if not user.is_authenticated:
@@ -979,8 +1002,10 @@ class ExamViewSet(
         return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
-    def by_schedule(self, request):
-        schedule_id = request.GET.get("schedule_id")
+    def by_schedule(self, request, schedule_id=None):
+        # The route passes the id in the path (by-schedule/<id>/); the query
+        # string is still read for any caller that sends it there.
+        schedule_id = schedule_id or request.GET.get("schedule_id")
         if not schedule_id:
             return Response(
                 {"error": "Schedule ID is required"}, status=status.HTTP_400_BAD_REQUEST
@@ -1437,7 +1462,7 @@ class ExamScheduleViewSet(
     @action(detail=True, methods=["get"])
     def exams(self, request, pk=None):
         schedule = self.get_object()
-        exams = Exam.objects.filter(exam_schedule=schedule)
+        exams = Exam.objects.filter(exam_schedule=schedule).defer(*LIST_DEFERRED_FIELDS)
         return Response(ExamListSerializer(exams, many=True).data)
 
     @action(detail=True, methods=["get"])
