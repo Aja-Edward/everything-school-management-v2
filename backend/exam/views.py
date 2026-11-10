@@ -17,6 +17,7 @@ from utils.pagination import LargeResultsPagination, StandardResultsPagination
 import logging
 
 # Import models
+from .models import EXAM_PAPER_FIELDS
 from .models import (
     Exam,
     ExamType,
@@ -321,29 +322,9 @@ class ExamStatusViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 # ==============================================================================
 
 
-# Columns that hold an exam's paper: question HTML (with drawings inline as
-# SVG data URLs), passages, the plain page, sound clips and print settings.
-# They are most of each row's size, and every byte read from Postgres is
-# Supabase egress, so endpoints that return many exams leave them in the
-# database. ExamListSerializer doesn't show them.
-LIST_DEFERRED_FIELDS = (
-    "objective_questions",
-    "theory_questions",
-    "practical_questions",
-    "custom_sections",
-    "objective_instructions",
-    "theory_instructions",
-    "practical_instructions",
-    "objective_passage",
-    "theory_passage",
-    "section_audio",
-    "plain_page",
-    "print_settings",
-    "instructions",
-    "materials_allowed",
-    "materials_provided",
-    "description",
-)
+# The exam paper columns (see exam.models.EXAM_PAPER_FIELDS): left in the
+# database by every action that returns many exams.
+LIST_DEFERRED_FIELDS = EXAM_PAPER_FIELDS
 
 # ExamViewSet actions that return many exams, and so use ExamListSerializer
 # over a queryset with LIST_DEFERRED_FIELDS deferred.
@@ -1021,8 +1002,10 @@ class ExamViewSet(
         return Response(self.get_serializer(exams, many=True).data)
 
     @action(detail=False, methods=["get"])
-    def by_schedule(self, request):
-        schedule_id = request.GET.get("schedule_id")
+    def by_schedule(self, request, schedule_id=None):
+        # The route passes the id in the path (by-schedule/<id>/); the query
+        # string is still read for any caller that sends it there.
+        schedule_id = schedule_id or request.GET.get("schedule_id")
         if not schedule_id:
             return Response(
                 {"error": "Schedule ID is required"}, status=status.HTTP_400_BAD_REQUEST

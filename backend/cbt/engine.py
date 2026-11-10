@@ -29,7 +29,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from exam.models import ExamRegistration
+from exam.models import ExamRegistration, exam_paper_fields
 from students.models import Student
 
 from . import scoring
@@ -96,6 +96,7 @@ def eligible_papers(student):
         .exclude(exam_id__in=registrations.filter(is_registered=False).values("exam_id"))
         .exclude(exam__status__code="cancelled")
         .select_related("exam", "exam__subject")
+        .defer(*exam_paper_fields("exam__"))
     )
 
 
@@ -171,7 +172,7 @@ def my_exams(student, now=None):
     papers = list(eligible_papers(student).order_by("opens_at"))
     attempts = {}
     for attempt in (CBTAttempt.objects.filter(student=student, paper__in=papers)
-                    .select_related("paper__exam").order_by("number")):
+                    .select_related("paper__exam").defer(*exam_paper_fields("paper__exam__")).order_by("number")):
         attempt = finalize_if_expired(attempt, now)
         attempts.setdefault(attempt.paper_id, []).append(attempt)
 
@@ -252,7 +253,7 @@ def start(student, paper_id, access_code="", session_token=None, ip_address=None
 
 def _take_over(attempt, ip_address, user_agent, now):
     with transaction.atomic():
-        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
+        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk)
         moved = (ip_address, (user_agent or "")[:255]) != (attempt.ip_address, attempt.user_agent)
         token = _new_session(attempt)
         attempt.ip_address, attempt.user_agent, attempt.last_seen_at = ip_address, (user_agent or "")[:255], now
@@ -271,6 +272,7 @@ def attempt_for(student, attempt_id, session_token, now=None):
     """
     now = now or timezone.now()
     attempt = (CBTAttempt.objects.select_related("paper__exam", "paper__exam__subject")
+               .defer(*exam_paper_fields("paper__exam__"))
                .filter(pk=attempt_id, student=student).first())
     if attempt is None:
         raise Refused("Attempt not found.", status=404, code="not_found")
@@ -306,7 +308,7 @@ def _locked_in_progress(attempt, now):
     a transaction, after finalize_if_expired(). Ending it here would be rolled
     back along with the refusal.
     """
-    attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
+    attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk)
     if attempt.status != CBTAttempt.Status.IN_PROGRESS or now > attempt.deadline + GRACE:
         raise Refused("This attempt has ended.", status=409, code="ended")
     return attempt
@@ -484,7 +486,7 @@ def submit(attempt, now=None):
     """
     now = now or timezone.now()
     with transaction.atomic():
-        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
+        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk)
         if attempt.status == CBTAttempt.Status.IN_PROGRESS:
             _end(attempt, now, timed_out=now > attempt.deadline)
     return attempt
@@ -496,7 +498,7 @@ def finalize_if_expired(attempt, now=None):
     if attempt.status != CBTAttempt.Status.IN_PROGRESS or now <= attempt.deadline + GRACE:
         return attempt
     with transaction.atomic():
-        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").get(pk=attempt.pk)
+        attempt = CBTAttempt.objects.select_for_update().select_related("paper__exam").defer(*exam_paper_fields("paper__exam__")).get(pk=attempt.pk)
         if attempt.status == CBTAttempt.Status.IN_PROGRESS:
             _end(attempt, now, timed_out=True)
     return attempt

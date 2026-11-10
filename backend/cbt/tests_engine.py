@@ -330,3 +330,45 @@ class SittingTest(EngineTest):
         self.assertEqual(self.attempt.status, CBTAttempt.Status.TIMED_OUT)
         self.assertEqual(waiting.status, CBTAttempt.Status.IN_PROGRESS)
         self.assertEqual(self.attempt.events.last().kind, CBTEvent.Kind.TIMED_OUT)
+
+
+class SittingLeavesTheExamPaperInTheDatabaseTest(EngineTest):
+    """
+    A CBT paper has its own questions (CBTQuestion); the exam it came from
+    only gives it a title and subject. But the exam row also holds the
+    teacher's whole paper - question HTML with drawings inline - and every
+    heartbeat, save and submit joined it in. With a class sitting, that was
+    the paper read from Postgres twice a minute per student, all counted as
+    Supabase egress.
+    """
+
+    PAPER_COLUMNS = ("objective_questions", "theory_questions", "custom_sections", "plain_page")
+
+    def setUp(self):
+        super().setUp()
+        self.attempt = self.started()
+        self.q = self.attempt.question_ids
+
+    def assert_paper_not_read(self, method, url, data=None):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.request(method, url, data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        for sql in (q["sql"] for q in queries.captured_queries):
+            for column in self.PAPER_COLUMNS:
+                self.assertNotIn(f'"exams_exam"."{column}"', sql, url)
+        return response
+
+    def test_a_sitting_never_reads_the_exam_paper(self):
+        heartbeat = self.assert_paper_not_read(
+            "post", f"{ATTEMPTS}{self.attempt.id}/heartbeat/", {"position": 1})
+        self.assertEqual(heartbeat.data["exam_title"], self.paper.exam.title)
+        self.assert_paper_not_read(
+            "post", f"{ATTEMPTS}{self.attempt.id}/answers/",
+            {"answers": [{"question_id": self.q[0], "selected_option": "B"}]})
+        self.assert_paper_not_read("get", f"{ATTEMPTS}{self.attempt.id}/")
+        self.assert_paper_not_read("get", MY_EXAMS)
+        submitted = self.assert_paper_not_read("post", f"{ATTEMPTS}{self.attempt.id}/submit/")
+        self.assertEqual(submitted.data["status"], "submitted")

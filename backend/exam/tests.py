@@ -114,6 +114,19 @@ class ExamApiTestCase(APITestCase):
             "start_time": "09:00", "end_time": "10:00",
         }
 
+    def make_schedule(self, school, **extra):
+        session = AcademicSession.objects.create(
+            tenant=school, name="2026/2027", start_date=date(2026, 9, 7),
+            end_date=date(2027, 7, 23), is_current=True)
+        term_type, _ = TermType.objects.get_or_create(
+            tenant=school, code="FT", defaults={"name": "First Term", "display_order": 1})
+        term = Term.objects.create(
+            tenant=school, term_type=term_type, academic_session=session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16), is_current=True)
+        return ExamSchedule.objects.create(
+            tenant=school, name="First Term Exams", academic_session=session, term=term,
+            start_date=date(2026, 12, 1), end_date=date(2026, 12, 12), **extra)
+
     def get(self, url, school=None):
         return self.client.get(url, HTTP_X_TENANT_SLUG=(school or self.school).slug)
 
@@ -656,6 +669,18 @@ class ExamListsLeaveThePaperOutTest(ExamApiTestCase):
         with CaptureQueriesContext(connection) as four:
             self.assertEqual(len(self.rows(self.get(url))), 4)
         self.assertEqual(len(four), len(one))
+
+    def test_the_exams_on_a_schedule_are_listed_by_its_id_in_the_path(self):
+        # The route is by-schedule/<id>/, but the action read ?schedule_id=
+        # and so answered 400 to every call.
+        schedule = self.make_schedule(self.school)
+        Exam.objects.filter(pk=self.exam.pk).update(exam_schedule=schedule)
+
+        rows = self.rows(self.get(f"/api/exams/by-schedule/{schedule.id}/"))
+
+        self.assertEqual([e["id"] for e in rows], [self.exam.id])
+        for field in self.PAPER:
+            self.assertNotIn(field, rows[0])
 
     def test_the_exam_itself_still_carries_its_paper(self):
         detail = self.get(f"{EXAMS}{self.exam.id}/").data
@@ -1424,19 +1449,6 @@ class ExamActionsStayInTheirSchoolTest(ExamApiTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(ExamReview.objects.exists())
-
-    def make_schedule(self, school, **extra):
-        session = AcademicSession.objects.create(
-            tenant=school, name="2026/2027", start_date=date(2026, 9, 7),
-            end_date=date(2027, 7, 23), is_current=True)
-        term_type, _ = TermType.objects.get_or_create(
-            tenant=school, code="FT", defaults={"name": "First Term", "display_order": 1})
-        term = Term.objects.create(
-            tenant=school, term_type=term_type, academic_session=session,
-            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16), is_current=True)
-        return ExamSchedule.objects.create(
-            tenant=school, name="First Term Exams", academic_session=session, term=term,
-            start_date=date(2026, 12, 1), end_date=date(2026, 12, 12), **extra)
 
     def test_a_default_schedule_does_not_clear_another_schools_default(self):
         theirs = self.make_schedule(self.other, is_default=True)

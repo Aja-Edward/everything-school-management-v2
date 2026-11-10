@@ -304,6 +304,37 @@ class ExamSchedule(TenantMixin, models.Model):
 # UPDATED: EXAM MODEL - FK-BASED
 # ==============================================================================
 
+# Columns that hold an exam's paper: question HTML (drawings sit inline as SVG
+# data URLs), passages, the plain page, sound clips and print settings. They
+# are most of a row's size, and every byte Postgres sends the backend counts
+# as Supabase egress, so code that reads many exams, or reads an exam only
+# for its title and ids, defers them. A deferred column is still loaded if
+# something reads it, one query per column, so deferring never loses data.
+EXAM_PAPER_FIELDS = (
+    "objective_questions",
+    "theory_questions",
+    "practical_questions",
+    "custom_sections",
+    "objective_instructions",
+    "theory_instructions",
+    "practical_instructions",
+    "objective_passage",
+    "theory_passage",
+    "section_audio",
+    "plain_page",
+    "print_settings",
+    "instructions",
+    "materials_allowed",
+    "materials_provided",
+    "description",
+)
+
+
+def exam_paper_fields(prefix=""):
+    """EXAM_PAPER_FIELDS as seen through a relation, e.g. prefix="paper__exam__"."""
+    return tuple(prefix + name for name in EXAM_PAPER_FIELDS)
+
+
 class Exam(TenantMixin, models.Model):
     """
     Streamlined exam model focused on logistics
