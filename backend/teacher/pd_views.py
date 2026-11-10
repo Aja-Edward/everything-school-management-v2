@@ -70,7 +70,9 @@ class PDSerializer(drf_serializers.ModelSerializer):
         return obj.teacher.user.get_full_name()
 
     def get_reviewed_by_name(self, obj):
-        return obj.reviewed_by.get_full_name() if obj.reviewed_by else None
+        from common.admin_identity import public_name
+
+        return public_name(obj.reviewed_by)
 
     def get_is_expired(self, obj):
         return bool(obj.date_expires and obj.date_expires < date.today())

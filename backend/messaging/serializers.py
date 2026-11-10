@@ -1,13 +1,14 @@
 from rest_framework import serializers
 from .models import Message, MessageTemplate, BulkMessage
 from users.models import CustomUser
+from common.admin_identity import AuthorEmailField, AuthorNameField
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    sender_name = serializers.CharField(source="sender.full_name", read_only=True)
-    recipient_name = serializers.CharField(source="recipient.full_name", read_only=True)
-    sender_email = serializers.CharField(source="sender.email", read_only=True)
-    recipient_email = serializers.CharField(source="recipient.email", read_only=True)
+    sender_name = AuthorNameField(source="sender")
+    recipient_name = AuthorNameField(source="recipient")
+    sender_email = AuthorEmailField(source="sender")
+    recipient_email = AuthorEmailField(source="recipient")
     message_type_display = serializers.CharField(source="get_message_type_display", read_only=True)
     priority_display = serializers.CharField(source="get_priority_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -74,7 +75,7 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
 
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
-    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True)
+    created_by_name = AuthorNameField(source="created_by")
     message_type_display = serializers.CharField(source="get_message_type_display", read_only=True)
 
     class Meta:
@@ -96,7 +97,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
 
 class BulkMessageSerializer(serializers.ModelSerializer):
-    sender_name = serializers.CharField(source="sender.full_name", read_only=True)
+    sender_name = AuthorNameField(source="sender")
     message_type_display = serializers.CharField(source="get_message_type_display", read_only=True)
     priority_display = serializers.CharField(source="get_priority_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -136,9 +137,11 @@ class BulkMessageSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for user selection in messaging"""
-    full_name = serializers.CharField(source="get_full_name", read_only=True)
+    # Who can be messaged: an admin is listed by title, as they sign.
+    full_name = AuthorNameField(source="*")
+    email = AuthorEmailField(source="*")
     role_display = serializers.CharField(source="get_role_display", read_only=True)
-    
+
     class Meta:
         model = CustomUser
         fields = ["id", "email", "full_name", "role", "role_display"]

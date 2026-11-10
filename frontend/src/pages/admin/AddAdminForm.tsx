@@ -9,6 +9,7 @@ const AddAdminForm: React.FC = () => {
     lastName: '',
     email: '',
     role: 'admin',
+    adminTitle: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,8 @@ const AddAdminForm: React.FC = () => {
         first_name: formData.firstName,
         last_name: formData.lastName,
         role: formData.role,
+        // Blank lets the server number it, e.g. "School Admin 2".
+        admin_title: formData.adminTitle.trim(),
       };
       
       // Use the admins endpoint that generates unique username
@@ -60,6 +63,7 @@ const AddAdminForm: React.FC = () => {
           lastName: '',
           email: '',
           role: 'admin',
+          adminTitle: '',
         });
       }, 1200);
       
@@ -139,6 +143,22 @@ const AddAdminForm: React.FC = () => {
         </select>
         <p className="mt-1 text-xs text-gray-500">
           {ADMIN_ROLE_OPTIONS.find(option => option.value === formData.role)?.hint}
+        </p>
+      </div>
+      <div className="mb-4">
+        <label htmlFor="admin-title" className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+        <input
+          id="admin-title"
+          type="text"
+          name="adminTitle"
+          maxLength={100}
+          value={formData.adminTitle}
+          onChange={handleInputChange}
+          placeholder="e.g. Vice Principal (leave blank for a numbered title)"
+          className="w-full p-3 border border-gray-300 rounded-lg"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Others see this title, not the admin's name, on messages, announcements and reviews.
         </p>
       </div>
       <div className="flex justify-end gap-4 pt-6 border-t border-gray-200">

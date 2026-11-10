@@ -3,6 +3,8 @@ student_promotions/serializers.py
 """
 
 from rest_framework import serializers
+
+from common.admin_identity import AuthorNameField
 from .models import StudentPromotion, PromotionRule
 from academics.models import AcademicSession, EducationLevel
 from classroom.models import Class as StudentClass
@@ -13,9 +15,7 @@ class PromotionRuleSerializer(serializers.ModelSerializer):
         source="education_level.name", read_only=True
     )
     education_level_detail = serializers.SerializerMethodField()
-    created_by_name = serializers.CharField(
-        source="created_by.get_full_name", read_only=True, allow_null=True
-    )
+    created_by_name = AuthorNameField(source="created_by")
 
     class Meta:
         model = PromotionRule

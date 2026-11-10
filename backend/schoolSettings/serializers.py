@@ -3,6 +3,8 @@ import re
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+
+from common.admin_identity import AuthorNameField
 from .models import (
     validate_maps_embed_url,
     NotificationSettings,
@@ -90,9 +92,13 @@ class SchoolHolidaySerializer(serializers.ModelSerializer):
 class SchoolAnnouncementSerializer(serializers.ModelSerializer):
     """Serializer for school announcements"""
 
-    created_by_name = serializers.CharField(
-        source="created_by.full_name", read_only=True
-    )
+    # Who posted it, by title for an admin (common.admin_identity).
+    created_by_name = serializers.SerializerMethodField()
+
+    def get_created_by_name(self, obj):
+        from common.admin_identity import public_name
+
+        return public_name(obj.created_by)
 
     class Meta:
         model = SchoolAnnouncement
@@ -303,9 +309,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
     permissions = serializers.SerializerMethodField()
     user_count = serializers.ReadOnlyField()
-    created_by_name = serializers.CharField(
-        source="created_by.full_name", read_only=True
-    )
+    created_by_name = AuthorNameField(source="created_by")
 
     # Nested permissions structure for frontend compatibility
     permissions_dict = serializers.SerializerMethodField()
@@ -463,8 +467,8 @@ class UserRoleSerializer(serializers.ModelSerializer):
     user_email = serializers.CharField(source="user.email", read_only=True)
     role_name = serializers.CharField(source="role.name", read_only=True)
     role_color = serializers.CharField(source="role.color", read_only=True)
-    assigned_by_name = serializers.CharField(
-        source="assigned_by.full_name", read_only=True
+    assigned_by_name = AuthorNameField(
+        source="assigned_by"
     )
     custom_permissions = serializers.SerializerMethodField()
 

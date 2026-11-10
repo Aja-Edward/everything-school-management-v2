@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import api from '@/services/api';
 import AddAdminForm from './AddAdminForm';
-import { adminRoleLabel } from './adminRoles';
+import { ADMIN_ROLE_OPTIONS, OWNER_TITLE_OPTIONS, adminRoleLabel } from './adminRoles';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Search,
   Plus,
@@ -17,6 +18,7 @@ import {
   Calendar,
   X,
   ChevronLeft,
+  BadgeCheck,
 } from 'lucide-react';
 
 interface Admin {
@@ -33,9 +35,25 @@ interface Admin {
   last_login: string | null;
   phone?: string;
   role?: string;
+  // What others see in place of the admin's name (messages, announcements).
+  admin_title?: string;
+  // The account made when the school registered: the Proprietor/Proprietress.
+  is_owner?: boolean;
+  section?: string | null;
+}
+
+interface AssignState {
+  admin: Admin;
+  title: string;
+  role: string;
+  saving: boolean;
 }
 
 const AllAdmins = () => {
+  const { user } = useAuth();
+  // Only the owner assigns roles; the server refuses anyone else too.
+  const canAssign = (user as any)?.role === 'superadmin' || (user as any)?.is_superuser === true;
+  const [assign, setAssign] = useState<AssignState | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +95,32 @@ const AllAdmins = () => {
     }
   };
 
+  const openAssign = (admin: Admin) => {
+    setAssign({
+      admin,
+      title: admin.admin_title || '',
+      role: admin.role || 'admin',
+      saving: false,
+    });
+  };
+
+  const handleAssign = async () => {
+    if (!assign) return;
+    setAssign({ ...assign, saving: true });
+    try {
+      const payload: Record<string, string> = { admin_title: assign.title.trim() };
+      if (!assign.admin.is_owner) payload.role = assign.role;
+      await api.patch(`/api/auth/admins/${assign.admin.id}/`, payload);
+      toast.success('Role updated');
+      setAssign(null);
+      fetchAdmins();
+    } catch (error: any) {
+      console.error('Error assigning admin role:', error);
+      toast.error(error?.response?.data?.error || 'Failed to update role');
+      setAssign(current => (current ? { ...current, saving: false } : current));
+    }
+  };
+
   const handleDeleteAdmin = async () => {
     if (!deleteModal.admin) return;
 
@@ -98,7 +142,8 @@ const AllAdmins = () => {
       (admin.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.first_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (admin.last_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (admin.full_name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (admin.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (admin.admin_title || '').toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesFilter =
       filterStatus === 'all'
@@ -305,6 +350,9 @@ const AllAdmins = () => {
                     Admin
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Contact
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -338,13 +386,21 @@ const AllAdmins = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3">
+                      <p className="text-sm font-medium text-gray-900 flex items-center gap-1">
+                        {admin.is_owner && <BadgeCheck className="w-3.5 h-3.5 text-amber-600" />}
+                        {admin.admin_title || (admin.role ? adminRoleLabel(admin.role) : 'Admin')}
+                      </p>
+                      {admin.role && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {admin.is_owner ? 'Super admin · whole school' : adminRoleLabel(admin.role)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 text-sm text-gray-600">
                         <Mail className="w-3.5 h-3.5 text-gray-400" />
                         {admin.email}
                       </div>
-                      {admin.role && (
-                        <p className="text-xs text-gray-500 mt-0.5">{adminRoleLabel(admin.role)}</p>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -377,6 +433,14 @@ const AllAdmins = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
+                        {canAssign && (
+                          <button
+                            onClick={() => openAssign(admin)}
+                            className="px-2.5 py-1 text-xs font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                          >
+                            Assign role
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleStatus(admin.id, admin.is_active)}
                           className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
@@ -409,6 +473,96 @@ const AllAdmins = () => {
           </div>
         )}
       </div>
+
+      {/* Assign Role Modal */}
+      {assign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !assign.saving && setAssign(null)} />
+          <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-5">
+            <button
+              onClick={() => setAssign(null)}
+              disabled={assign.saving}
+              className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Assign role</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {assign.admin.full_name || assign.admin.username}
+            </p>
+
+            <label htmlFor="assign-title" className="block text-sm font-medium text-gray-700 mb-1">
+              Title
+            </label>
+            {assign.admin.is_owner ? (
+              <select
+                id="assign-title"
+                value={OWNER_TITLE_OPTIONS.includes(assign.title) ? assign.title : ''}
+                onChange={e => setAssign({ ...assign, title: e.target.value })}
+                className="w-full p-2.5 text-sm border border-gray-300 rounded-lg bg-white"
+              >
+                <option value="">Proprietor/Proprietress</option>
+                {OWNER_TITLE_OPTIONS.map(title => (
+                  <option key={title} value={title}>{title}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="assign-title"
+                type="text"
+                maxLength={100}
+                value={assign.title}
+                onChange={e => setAssign({ ...assign, title: e.target.value })}
+                placeholder="e.g. School Admin 2, Vice Principal"
+                className="w-full p-2.5 text-sm border border-gray-300 rounded-lg"
+              />
+            )}
+            <p className="mt-1 text-xs text-gray-500">
+              Shown instead of the admin's name on messages, announcements and reviews.
+            </p>
+
+            <label htmlFor="assign-role" className="block text-sm font-medium text-gray-700 mt-4 mb-1">
+              Section
+            </label>
+            {assign.admin.is_owner ? (
+              <p className="text-sm text-gray-600">The super admin always covers the whole school.</p>
+            ) : (
+              <>
+                <select
+                  id="assign-role"
+                  value={assign.role}
+                  onChange={e => setAssign({ ...assign, role: e.target.value })}
+                  className="w-full p-2.5 text-sm border border-gray-300 rounded-lg bg-white"
+                >
+                  {ADMIN_ROLE_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {ADMIN_ROLE_OPTIONS.find(option => option.value === assign.role)?.hint}
+                </p>
+              </>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => setAssign(null)}
+                disabled={assign.saving}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAssign}
+                disabled={assign.saving}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {assign.saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteModal.open && deleteModal.admin && (
