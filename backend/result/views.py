@@ -1189,7 +1189,7 @@ class BaseResultViewSetMixin:
                 teacher=teacher, is_active=True)
             .exclude(subject__isnull=True)
             .values_list("classroom_id", "subject_id")
-            .distinct()
+            .order_by().distinct()
         )
         for classroom_id, subject_id in pairs:
             # subject_id is on the result row itself, so each OR branch binds
@@ -2089,8 +2089,8 @@ class SeniorSecondaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
                         "stream",
                         "stream__stream_type_new",
 
@@ -2210,7 +2210,7 @@ class SeniorSecondaryTermReportViewSet(
         with transaction.atomic():
             qs = SeniorSecondaryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = SeniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = SeniorSecondaryResult.bulk_publish(
                 SeniorSecondaryResult.objects.filter(
@@ -2246,7 +2246,7 @@ class SeniorSecondaryTermReportViewSet(
         student_classes = (
             SeniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -2262,7 +2262,7 @@ class SeniorSecondaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -2540,8 +2540,8 @@ class JuniorSecondaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
 
                     ).prefetch_related(
                         "grading_system__grades",
@@ -2653,7 +2653,7 @@ class JuniorSecondaryTermReportViewSet(
                 tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = JuniorSecondaryTermReport.bulk_publish(qs, request.user)
             result_count = JuniorSecondaryResult.bulk_publish(
                 JuniorSecondaryResult.objects.filter(
@@ -2688,7 +2688,7 @@ class JuniorSecondaryTermReportViewSet(
         student_classes = (
             JuniorSecondaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -2703,7 +2703,7 @@ class JuniorSecondaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -2962,8 +2962,8 @@ class PrimaryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
-                        "term_report",
+                        # published_by and term_report go out as ids (fields = "__all__"),
+                        # so joining their rows only added bytes read from Postgres.
 
                     ).prefetch_related(
                         "grading_system__grades",
@@ -3072,7 +3072,7 @@ class PrimaryTermReportViewSet(
                 tenant=request.tenant, pk__in=ser.validated_data["result_ids"]
             )
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = PrimaryTermReport.bulk_publish(qs, request.user)
             result_count = PrimaryResult.bulk_publish(
                 PrimaryResult.objects.filter(
@@ -3107,7 +3107,7 @@ class PrimaryTermReportViewSet(
         student_classes = (
             PrimaryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -3122,7 +3122,7 @@ class PrimaryTermReportViewSet(
                     status__in=(APPROVED, PUBLISHED),
                 )
                 .values_list("subject_id", "student__student_class")
-                .distinct()
+                .order_by().distinct()
             )
             for subject_id, sc in subjects:
                 if subject_id and sc:
@@ -3444,7 +3444,8 @@ class NurseryTermReportViewSet(
                         "grading_system",
                         "entered_by",
                         "approved_by",
-                        "published_by",
+                        # published_by goes out as an id; joining its row only added bytes
+                        # read from Postgres. Nursery reads term_report's fields, so it stays.
                         "term_report",
 
                     ).prefetch_related(
@@ -3575,7 +3576,7 @@ class NurseryTermReportViewSet(
         with transaction.atomic():
             qs = NurseryTermReport.objects.filter(tenant=request.tenant, pk__in=report_ids)
             combos = list(qs.values_list("exam_session_id",
-                          "student__student_class").distinct())
+                          "student__student_class").order_by().distinct())
             count = NurseryTermReport.bulk_publish(qs, request.user)
             # One UPDATE for all child results — no N+1 loop.
             result_count = NurseryResult.objects.filter(
@@ -3614,7 +3615,7 @@ class NurseryTermReportViewSet(
         student_classes = (
             NurseryTermReport.objects.filter(exam_session=exam_session)
             .values_list("student__student_class", flat=True)
-            .distinct()
+            .order_by().distinct()
         )
         count = 0
         all_statuses = (DRAFT, APPROVED, PUBLISHED)
@@ -3884,7 +3885,7 @@ class UnifiedSubjectResultViewSet(TenantFilterMixin, viewsets.ViewSet):
                 ClassroomTeacherAssignment.objects.filter(teacher=teacher)
                 .exclude(subject__isnull=True)
                 .values_list("subject_id", flat=True)
-                .distinct()
+                .order_by().distinct()
             )
             if assigned_subjects.exists():
                 return queryset.filter(

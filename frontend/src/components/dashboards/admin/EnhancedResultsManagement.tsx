@@ -620,6 +620,14 @@ const EnhancedResultsManagement: React.FC = () => {
 
   // ── Recalculate positions helper ──────────────────────────────────────────
 
+  /**
+   * The reports that were drafts before a publish. Re-ranking reads every
+   * result in the level and session from the database, so it runs only when
+   * a publish changed what is ranked.
+   */
+  const onlyDrafts = (affected: EnrichedReport[]) =>
+    affected.filter((r) => r.status === 'DRAFT');
+
   const recalcPositions = async (affected: EnrichedReport[]) => {
     const seen   = new Set<string>();
     const combos: { level: EducationLevelType; sid: string }[] = [];
@@ -663,7 +671,10 @@ const EnhancedResultsManagement: React.FC = () => {
       setReports((prev) => prev.map((r) => r.id === report.id ? { ...r, status: 'PUBLISHED' as ResultStatus } : r));
       if (detailReport?.id === report.id)
         setDetailReport((p) => p ? { ...p, status: 'PUBLISHED' as ResultStatus } : null);
-      await recalcPositions([report]);
+      // Positions count approved and published results alike, so publishing
+      // an approved report changes nothing to re-rank. A draft published
+      // straight away joins the ranking, so that one still needs it.
+      await recalcPositions(onlyDrafts([report]));
       await loadTermReports(true);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to publish');
@@ -763,7 +774,7 @@ const EnhancedResultsManagement: React.FC = () => {
       setTrSelectedIds([]);
       toast.success(`${total} report(s) published`);
       const affected = reports.filter((r) => trSelectedIds.includes(r.id));
-      await recalcPositions(affected);
+      await recalcPositions(onlyDrafts(affected));
       await loadTermReports(true);
     } catch (err: any) {
       toast.error(err?.message || 'Bulk publish failed');
