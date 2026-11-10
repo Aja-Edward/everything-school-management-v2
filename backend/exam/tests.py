@@ -1361,3 +1361,76 @@ class ExamActionsStayInTheirSchoolTest(ExamApiTestCase):
         theirs.refresh_from_db()
         self.assertTrue(ours.is_default)
         self.assertTrue(theirs.is_default)
+
+
+class SectionAdminExamScreensTest(ExamApiTestCase):
+    """
+    A section admin's Exams page lists their section's exams.
+
+    It answered 500: the section admin branch compared level codes
+    ("JUNIOR_SECONDARY") with the education level foreign key, which Django
+    reads as an id. Reported by a school whose Secondary Admin saw only
+    secondary pupils and classes, as meant, and then an error on Exams.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # self.exam is a Primary exam; add one for JSS 1.
+        jss = EducationLevel.objects.get(tenant=self.school, code="jss")
+        jss1 = GradeLevel.objects.create(
+            tenant=self.school, name="JSS 1", education_level=jss, order=7)
+        self.jss_exam = self.make_exam(self.school)
+        self.jss_exam.grade_level = jss1
+        self.jss_exam.save()
+
+    def ids(self, response):
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        body = response.data
+        rows = body["results"] if isinstance(body, dict) and "results" in body else body
+        return {row["id"] for row in rows}
+
+    def get(self, path):
+        return self.client.get(path, HTTP_X_TENANT_SLUG=self.school.slug)
+
+    def test_a_secondary_admin_lists_the_secondary_exams(self):
+        self.login("secondary_admin")
+
+        self.assertEqual(self.ids(self.get(EXAMS)), {self.jss_exam.id})
+
+    def test_a_junior_secondary_admin_lists_the_jss_exams(self):
+        self.login("junior_secondary_admin")
+
+        self.assertEqual(self.ids(self.get(EXAMS)), {self.jss_exam.id})
+
+    def test_a_primary_admin_lists_the_primary_exams(self):
+        self.login("primary_admin")
+
+        self.assertEqual(self.ids(self.get(EXAMS)), {self.exam.id})
+
+    def test_nor_opens_another_sections_exam(self):
+        self.login("primary_admin")
+
+        response = self.get(f"{EXAMS}{self.jss_exam.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_the_exams_page_also_loads_the_schools_schedules(self):
+        session = AcademicSession.objects.create(
+            tenant=self.school, name="2026/2027", start_date=date(2026, 9, 7),
+            end_date=date(2027, 7, 23), is_current=True)
+        term_type, _ = TermType.objects.get_or_create(
+            tenant=self.school, code="FT", defaults={"name": "First Term", "display_order": 1})
+        term = Term.objects.create(
+            tenant=self.school, term_type=term_type, academic_session=session,
+            start_date=date(2026, 9, 7), end_date=date(2026, 12, 16))
+        schedule = ExamSchedule.objects.create(
+            tenant=self.school, name="First Term Exams", academic_session=session, term=term,
+            start_date=date(2026, 12, 1), end_date=date(2026, 12, 12))
+        self.login("secondary_admin")
+
+        self.assertIn(schedule.id, self.ids(self.get("/api/exams/schedules/")))
+
+    def test_a_school_admin_still_lists_every_exam(self):
+        self.login("admin", is_staff=True)
+
+        self.assertEqual(self.ids(self.get(EXAMS)), {self.exam.id, self.jss_exam.id})
