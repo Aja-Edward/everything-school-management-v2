@@ -13,6 +13,15 @@ import { ExamDocumentUploader } from "@/components/shared/ExamDocumentUploader";
 import CBTPaperModal from "@/components/cbt/CBTPaperModal";
 import CBTService, { CBTPaper } from "@/services/CBTService";
 
+/**
+ * A list row with its paper filled in. The exam list leaves out each exam's
+ * questions, passages and plain page (they are most of its size), so editing
+ * or printing fetches the one exam in full. The row's own fields win, so ids
+ * and display names keep the shape the list gave them.
+ */
+const withPaper = async (row: Exam): Promise<Exam> =>
+  ({ ...(await ExamService.getExam(row.id)), ...row });
+
 const CBT_BADGE: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600 border-slate-200",
   published: "bg-indigo-50 text-indigo-700 border-indigo-200",
@@ -338,16 +347,22 @@ const ExamsPage: React.FC<ExamsPageProps> = ({
 
   // Update the handleEditExam function in ExamsPage.tsx
 
-const handleEditExam = useCallback((exam: Exam) => {
-  console.log("📝 Editing exam:", exam);
-  
-  if (!exam.id) {
+const handleEditExam = useCallback(async (listRow: Exam) => {
+  if (!listRow.id) {
     console.error("❌ Cannot edit exam: Missing ID");
     setError("Cannot edit exam: Missing ID. Please refresh and try again.");
     fetchExams();
     return;
   }
-  
+
+  let exam: Exam;
+  try {
+    exam = await withPaper(listRow);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Could not open this exam. Please try again.");
+    return;
+  }
+
   const normalizedForEdit = normalizeExamDataForEdit(exam);
   
   // CRITICAL FIX: Ensure all required fields are properly mapped
@@ -385,8 +400,14 @@ const handleEditExam = useCallback((exam: Exam) => {
 }, []);
 
   // Print Exam
-  const handlePrintExam = useCallback((exam: Exam) => {
-    console.log("🖨️ Preparing exam for print:", exam.title);
+  const handlePrintExam = useCallback(async (listRow: Exam) => {
+    let exam: Exam;
+    try {
+      exam = await withPaper(listRow);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load this exam for printing. Please try again.");
+      return;
+    }
     const normalizedForPrint = normalizeExamDataForDisplay(exam);
     
     setSelectedExamForPrint(normalizedForPrint);

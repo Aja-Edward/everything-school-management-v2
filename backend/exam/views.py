@@ -321,6 +321,46 @@ class ExamStatusViewSet(TenantFilterMixin, viewsets.ReadOnlyModelViewSet):
 # ==============================================================================
 
 
+# Columns that hold an exam's paper: question HTML (with drawings inline as
+# SVG data URLs), passages, the plain page, sound clips and print settings.
+# They are most of each row's size, and every byte read from Postgres is
+# Supabase egress, so endpoints that return many exams leave them in the
+# database. ExamListSerializer doesn't show them.
+LIST_DEFERRED_FIELDS = (
+    "objective_questions",
+    "theory_questions",
+    "practical_questions",
+    "custom_sections",
+    "objective_instructions",
+    "theory_instructions",
+    "practical_instructions",
+    "objective_passage",
+    "theory_passage",
+    "section_audio",
+    "plain_page",
+    "print_settings",
+    "instructions",
+    "materials_allowed",
+    "materials_provided",
+    "description",
+)
+
+# ExamViewSet actions that return many exams, and so use ExamListSerializer
+# over a queryset with LIST_DEFERRED_FIELDS deferred.
+EXAM_LIST_ACTIONS = frozenset({
+    "list",
+    "by_teacher",
+    "by_subject",
+    "by_grade",
+    "by_schedule",
+    "upcoming",
+    "completed",
+    "ongoing",
+    "calendar_view",
+    "summary_list",
+})
+
+
 class ExamViewSet(
     SectionEducationLevelMixin,
     TenantFilterMixin,
@@ -360,7 +400,7 @@ class ExamViewSet(
     pagination_class = StandardResultsPagination
 
     def get_serializer_class(self):
-        if self.action == "list":
+        if self.action in EXAM_LIST_ACTIONS:
             return ExamListSerializer
         elif self.action in ["create", "update", "partial_update"]:
             return ExamCreateUpdateSerializer
@@ -368,6 +408,8 @@ class ExamViewSet(
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.action in EXAM_LIST_ACTIONS:
+            queryset = queryset.defer(*LIST_DEFERRED_FIELDS)
         user = self.request.user
 
         if not user.is_authenticated:
@@ -1437,7 +1479,7 @@ class ExamScheduleViewSet(
     @action(detail=True, methods=["get"])
     def exams(self, request, pk=None):
         schedule = self.get_object()
-        exams = Exam.objects.filter(exam_schedule=schedule)
+        exams = Exam.objects.filter(exam_schedule=schedule).defer(*LIST_DEFERRED_FIELDS)
         return Response(ExamListSerializer(exams, many=True).data)
 
     @action(detail=True, methods=["get"])

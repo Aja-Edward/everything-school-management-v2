@@ -479,12 +479,14 @@ class ThePlainPageTest(ExamApiTestCase):
     def test_the_page_comes_back_where_the_forms_and_printing_read_it(self):
         Exam.objects.filter(pk=self.exam.pk).update(plain_page=self.PAGE, print_plain_page=True)
 
+        # Editing and printing open the exam itself; the list only says
+        # whether the page is what prints.
         detail = self.get(f"{EXAMS}{self.exam.id}/").data
         listing = self.get(EXAMS).data
         listed = next(e for e in listing.get("results", listing) if e["id"] == self.exam.id)
 
-        for read in (detail, listed):
-            self.assertEqual((read["plain_page"], read["print_plain_page"]), (self.PAGE, True))
+        self.assertEqual((detail["plain_page"], detail["print_plain_page"]), (self.PAGE, True))
+        self.assertTrue(listed["print_plain_page"])
 
     def test_an_edit_can_change_the_page_and_stop_printing_it(self):
         Exam.objects.filter(pk=self.exam.pk).update(plain_page=self.PAGE, print_plain_page=True)
@@ -567,9 +569,98 @@ class TheExamListFillsTheEditFormTest(ExamApiTestCase):
         self.assertEqual((listed["subject"], listed["grade_level"]),
                          (self.exam.subject_id, self.exam.grade_level_id))
 
-    def test_the_list_carries_the_comprehension_passages(self):
+    def test_the_exam_the_form_opens_carries_the_comprehension_passages(self):
+        # The form fetches the exam in full before it opens: the list leaves
+        # the paper out (see ExamListsLeaveThePaperOutTest).
         Exam.objects.filter(pk=self.exam.pk).update(objective_passage="Once upon a time.", theory_passage="")
-        self.assertEqual(self.listed()["objective_passage"], "Once upon a time.")
+        detail = self.get(f"{EXAMS}{self.exam.id}/").data
+        self.assertEqual(detail["objective_passage"], "Once upon a time.")
+
+
+class ExamListsLeaveThePaperOutTest(ExamApiTestCase):
+    """
+    Every byte Postgres sends the backend counts as Supabase egress. An
+    exam's questions (drawings sit inline in their HTML), passages and plain
+    page are most of its row, and the teacher dashboard and Exams page read
+    every one of a teacher's exams on each visit - in full, because
+    by-teacher and by-subject fell through to the detail serializer. The
+    screens that list exams show a row each; editing and printing fetch the
+    one exam they need. So anything returning many exams leaves the paper in
+    the database and out of the response.
+    """
+
+    PAPER = (
+        "objective_questions", "theory_questions", "practical_questions",
+        "custom_sections", "objective_passage", "theory_passage",
+        "plain_page", "section_audio", "print_settings",
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.teacher = self.login("teacher").teacher
+        # Scheduled, so it shows on /upcoming/ too.
+        Exam.objects.filter(pk=self.exam.pk).update(
+            teacher=self.teacher, plain_page="<p>A long paper</p>",
+            status=ExamStatus.objects.get(tenant=self.school, code="scheduled"))
+
+    def rows(self, response):
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        data = response.data
+        return data.get("results", data) if isinstance(data, dict) else data
+
+    def list_urls(self):
+        return [
+            EXAMS,
+            f"/api/exams/by-teacher/{self.teacher.id}/",
+            f"/api/exams/by-subject/{self.exam.subject_id}/",
+            f"/api/exams/by-grade/{self.exam.grade_level_id}/",
+            "/api/exams/upcoming/",
+            "/api/exams/calendar/",
+        ]
+
+    def test_lists_of_exams_leave_the_paper_out(self):
+        for url in self.list_urls():
+            with self.subTest(url=url):
+                rows = self.rows(self.get(url))
+                listed = next(e for e in rows if e["id"] == self.exam.id)
+                self.assertEqual(listed["title"], "First Term Mathematics")
+                self.assertEqual(listed["subject_name"], "Mathematics")
+                for field in self.PAPER:
+                    self.assertNotIn(field, listed)
+
+    def test_the_paper_is_not_read_from_the_database_for_a_list(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        for url in self.list_urls():
+            with self.subTest(url=url):
+                with CaptureQueriesContext(connection) as queries:
+                    self.rows(self.get(url))
+                exam_reads = [q["sql"] for q in queries.captured_queries
+                              if 'FROM "exams_exam"' in q["sql"]]
+                self.assertTrue(exam_reads)
+                for sql in exam_reads:
+                    for column in ("objective_questions", "theory_questions", "plain_page"):
+                        self.assertNotIn(f'"exams_exam"."{column}"', sql)
+
+    def test_a_list_reads_the_same_number_of_queries_for_more_exams(self):
+        # A deferred column read by the serializer would cost a query per row.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        url = f"/api/exams/by-teacher/{self.teacher.id}/"
+        with CaptureQueriesContext(connection) as one:
+            self.rows(self.get(url))
+        for _ in range(3):
+            self.make_exam(self.school, teacher=self.teacher)
+        with CaptureQueriesContext(connection) as four:
+            self.assertEqual(len(self.rows(self.get(url))), 4)
+        self.assertEqual(len(four), len(one))
+
+    def test_the_exam_itself_still_carries_its_paper(self):
+        detail = self.get(f"{EXAMS}{self.exam.id}/").data
+        self.assertEqual(detail["objective_questions"][0]["correctAnswer"], "B")
+        self.assertEqual(detail["plain_page"], "<p>A long paper</p>")
 
 
 class SavingAnExamsPrintSettingsTest(ExamApiTestCase):
@@ -612,12 +703,10 @@ class SavingAnExamsPrintSettingsTest(ExamApiTestCase):
     def test_the_format_comes_back_where_the_form_and_printing_read_it(self):
         Exam.objects.filter(pk=self.exam.pk).update(print_settings=self.SETTINGS)
 
+        # Print Preview fetches the exam in full before it opens.
         detail = self.get(f"{EXAMS}{self.exam.id}/").data
-        listing = self.get(EXAMS).data
-        listed = next(e for e in listing.get("results", listing) if e["id"] == self.exam.id)
 
         self.assertEqual(detail["print_settings"], self.SETTINGS)
-        self.assertEqual(listed["print_settings"], self.SETTINGS)
 
     def test_a_format_that_would_print_oddly_is_refused(self):
         for bad in (
