@@ -2,6 +2,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import Student
 from classroom.models import Classroom, StudentEnrollment
+from classroom.student_placement import enroll
 from academics.models import AcademicSession, Term
 
 
@@ -86,30 +87,21 @@ def auto_enroll_or_update_student(sender, instance, created, **kwargs):
         else:
             print(f"🏫 Using existing classroom: {classroom.name} (id={classroom.id})")
 
-        # Step 5: Enroll or update
+        # Step 5: Enroll or update. enroll() reactivates the student's old
+        # row for a classroom they once left, and swaps enrollments in one
+        # transaction: creating a duplicate row used to fail after the old
+        # enrollment was already ended, leaving the student in no class.
         active_enrollment = StudentEnrollment.objects.filter(
             student=instance, is_active=True
         ).first()
 
         if created:
             if not active_enrollment:
-                StudentEnrollment.objects.create(
-                    student=instance, classroom=classroom, tenant=instance.tenant
-                )
+                enroll(instance, classroom)
                 print(f"✅ {instance} auto-enrolled in {classroom.name}")
-        else:
-            if active_enrollment and active_enrollment.classroom != classroom:
-                active_enrollment.is_active = False
-                active_enrollment.save()
-                StudentEnrollment.objects.create(
-                    student=instance, classroom=classroom, tenant=instance.tenant
-                )
-                print(f"🔄 Updated {instance}'s classroom to {classroom.name}")
-            elif not active_enrollment:
-                StudentEnrollment.objects.create(
-                    student=instance, classroom=classroom, tenant=instance.tenant
-                )
-                print(f"✅ {instance} enrolled in {classroom.name}")
+        elif not active_enrollment or active_enrollment.classroom_id != classroom.id:
+            enroll(instance, classroom)
+            print(f"🔄 {instance} enrolled in {classroom.name}")
 
     except Exception as e:
         print(f"❌ Error enrolling/updating {instance}: {str(e)}")

@@ -222,6 +222,37 @@ class StudentPagesAfterTransferTest(StudentTransferSetup):
 
         self.assertIn("Moved 0 student(s); 0 disagree", output)
 
+    def test_saving_after_an_old_transfer_keeps_the_student_in_a_class(self):
+        """Aman Yahuza at Kebi: moved the old way, then her record was saved.
+        The signal ended her new enrollment, then failed to recreate the old
+        one (the ended row for that classroom already existed), so she was in
+        no class at all."""
+        self.transfer_the_old_way(self.gold_room, self.silver_room)
+
+        self.student.refresh_from_db()
+        self.student.save()
+
+        self.assertEqual(self.active_rooms(), [self.gold_room.id])
+
+    def test_saving_a_student_who_lost_their_enrollment_puts_them_back(self):
+        StudentEnrollment.objects.filter(student=self.student).update(is_active=False)
+
+        self.student.refresh_from_db()
+        self.student.save()
+
+        self.assertEqual(self.active_rooms(), [self.gold_room.id])
+
+    def test_the_repair_puts_a_student_in_no_class_back_in_their_own(self):
+        StudentEnrollment.objects.filter(student=self.student).update(is_active=False)
+
+        self.assertIn("Would re-enrol 1 student(s)", self.repair())
+        self.assertEqual(self.active_rooms(), [])
+
+        output = self.repair("--apply")
+
+        self.assertIn("Re-enrolled 1 student(s)", output)
+        self.assertEqual(self.active_rooms(), [self.gold_room.id])
+
     def test_the_repair_doesnt_guess_without_a_record_of_leaving(self):
         """No ended enrollment in their own section: which side is wrong
         can't be told from the data, so it is reported, not changed."""
